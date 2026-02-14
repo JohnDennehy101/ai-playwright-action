@@ -1,0 +1,1 @@
+Custom GitHub Action which will call AI inferencing to identify PlayWright regressions / missing tests in existing code.
