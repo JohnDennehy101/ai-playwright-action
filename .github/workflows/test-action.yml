@@ -1,0 +1,31 @@
+name: Test Action
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      gpu_ip:
+        description: 'Current GPU Server IP'
+        required: true
+        default: '0.0.0.0'
+      model_id:
+        description: 'Model ID to use for generation'
+        required: false
+        default: 'Qwen/Qwen2.5-Coder-7B-Instruct'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run Playwright Generator
+        uses: ./
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          llm-api-key: ${{ secrets.LLM_API_KEY }}
+          llm-host: ${{ github.event.inputs.gpu_ip || secrets.GPU_SERVER_IP }}
+          model-id: ${{ github.event.inputs.model_id || 'Qwen/Qwen2.5-Coder-7B-Instruct' }}
