@@ -19848,6 +19848,9 @@ function setFailed(message) {
 function error(message, properties = {}) {
   issueCommand("error", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
+function warning(message, properties = {}) {
+  issueCommand("warning", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
 function info(message) {
   process.stdout.write(message + os3.EOL);
 }
@@ -23491,19 +23494,56 @@ function getOctokit(token, options, ...additionalPlugins) {
 
 // index.js
 var EXCLUDED_EXTENSIONS = [".json", ".lock", ".md", ".txt", ".png", ".jpg", ".pdf", ".yml", ".yaml"];
-var isExcludedFile = (line, excludedExtensions) => {
-  return excludedExtensions.some((ext) => line.toLowerCase().includes(ext));
+var extractFilePath = (line) => {
+  const diffGitMatch = line.match(/diff --git a\/(.+?) b\//);
+  if (diffGitMatch) {
+    return diffGitMatch[1];
+  }
+  const minusMatch = line.match(/^--- a\/(.+)$/);
+  if (minusMatch) {
+    return minusMatch[1];
+  }
+  const plusMatch = line.match(/^\+\+\+ b\/(.+)$/);
+  if (plusMatch) {
+    return plusMatch[1];
+  }
+  return null;
+};
+var hasExcludedExtension = (text, excludedExtensions) => {
+  return excludedExtensions.some((ext) => text.toLowerCase().includes(ext));
+};
+var matchesExcludePattern = (filePath, excludePattern) => {
+  if (!excludePattern) {
+    return false;
+  }
+  try {
+    const regex = new RegExp(excludePattern);
+    return regex.test(filePath);
+  } catch (error2) {
+    warning(`Invalid exclude-pattern regex: ${excludePattern}. Error: ${error2.message}`);
+    return false;
+  }
+};
+var isExcludedFile = (line, excludedExtensions, excludePattern) => {
+  const filePath = extractFilePath(line);
+  if (!filePath) {
+    return hasExcludedExtension(line, excludedExtensions);
+  }
+  if (hasExcludedExtension(filePath, excludedExtensions)) {
+    return true;
+  }
+  return matchesExcludePattern(filePath, excludePattern);
 };
 var isDiffLine = (line) => {
   return line.startsWith("+++") || line.startsWith("---") || line.startsWith("+") || line.startsWith("-");
 };
-function filterDiff(rawDiff) {
+function filterDiff(rawDiff, excludePattern) {
   const lines = rawDiff.split("\n");
   const filtered = [];
   let shouldSkipFile = false;
   for (const line of lines) {
     if (line.startsWith("diff --git")) {
-      shouldSkipFile = isExcludedFile(line, EXCLUDED_EXTENSIONS);
+      shouldSkipFile = isExcludedFile(line, EXCLUDED_EXTENSIONS, excludePattern);
       continue;
     }
     if (shouldSkipFile || !isDiffLine(line)) {
@@ -23525,12 +23565,47 @@ var validateInputs = (inputs) => {
     missing.push("model-id");
   return missing;
 };
+var fetchPRDiff = async (octokit, context3) => {
+  info("Fetching PR diff...");
+  const { data: rawDiff } = await octokit.rest.pulls.get({
+    owner: context3.repo.owner,
+    repo: context3.repo.repo,
+    pull_number: context3.payload.pull_request.number,
+    mediaType: { format: "diff" }
+  });
+  return rawDiff;
+};
+var postTestComment = async (octokit, context3, cleanDiff) => {
+  const diffPreview = cleanDiff.length > 5e3 ? cleanDiff.substring(0, 5e3) + "\n\n... (truncated, see logs for full diff)" : cleanDiff;
+  await octokit.rest.issues.createComment({
+    owner: context3.repo.owner,
+    repo: context3.repo.repo,
+    issue_number: context3.payload.pull_request.number,
+    body: `### Generated Diff
+
+#### Filtered Diff Sent to Model:
+\`\`\`diff
+${diffPreview}
+\`\`\`
+
+---
+*Note: This is a test run. The actual API call was skipped.*`
+  });
+};
+var logDiffInfo = (cleanDiff, rawDiff) => {
+  info("=== FILTERED DIFF ===");
+  info(cleanDiff);
+  info("=== END FILTERED DIFF ===");
+  info(`Filtered diff length: ${cleanDiff.length} characters`);
+  info(`Original diff length: ${rawDiff.length} characters`);
+};
 async function run() {
   try {
     const token = getInput("github-token");
     const apiKey = getInput("llm-api-key");
     const host = getInput("llm-host");
     const modelId = getInput("model-id");
+    const excludePattern = getInput("exclude-pattern");
     const missingInputs = validateInputs({ token, apiKey, host, modelId });
     if (missingInputs.length > 0) {
       setFailed(`Missing required inputs: ${missingInputs.join(", ")}`);
@@ -23543,19 +23618,9 @@ async function run() {
       setFailed("No Pull Request found. This action only runs on PRs.");
       return;
     }
-    info("Fetching PR diff...");
-    const { data: rawDiff } = await octokit.rest.pulls.get({
-      owner: context3.repo.owner,
-      repo: context3.repo.repo,
-      pull_number: context3.payload.pull_request.number,
-      mediaType: { format: "diff" }
-    });
-    const cleanDiff = filterDiff(rawDiff);
-    info("=== FILTERED DIFF ===");
-    info(cleanDiff);
-    info("=== END FILTERED DIFF ===");
-    info(`Filtered diff length: ${cleanDiff.length} characters`);
-    info(`Original diff length: ${rawDiff.length} characters`);
+    const rawDiff = await fetchPRDiff(octokit, context3);
+    const cleanDiff = filterDiff(rawDiff, excludePattern);
+    logDiffInfo(cleanDiff, rawDiff);
     if (!cleanDiff || cleanDiff.length < 10) {
       info("Diff is empty or only contains excluded files. Skipping.");
       return;
@@ -23564,23 +23629,7 @@ async function run() {
     info(`Would send to ${endpoint2} with model_id: ${modelId}`);
     info(`Would send diff (first 500 chars): ${cleanDiff.substring(0, 500)}...`);
     info("TEST MODE: Posting test comment to PR...");
-    const diffPreview = cleanDiff.length > 5e3 ? cleanDiff.substring(0, 5e3) + "\n\n... (truncated, see logs for full diff)" : cleanDiff;
-    info("TEST MODE: Posting test comment to PR...");
-    await octokit.rest.issues.createComment({
-      owner: context3.repo.owner,
-      repo: context3.repo.repo,
-      issue_number: context3.payload.pull_request.number,
-      body: `### Generated Diff
-
-
-            #### Filtered Diff Sent to Model:
-\`\`\`diff
-${diffPreview}
-\`\`\`
-
----
-*Note: This is a test run. The actual API call was skipped.*`
-    });
+    await postTestComment(octokit, context3, cleanDiff);
     info("Test comment posted successfully!");
     info("Test complete!");
   } catch (error2) {
