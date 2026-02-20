@@ -23490,7 +23490,7 @@ function getOctokit(token, options, ...additionalPlugins) {
 }
 
 // index.js
-var EXCLUDED_EXTENSIONS = [".json", ".lock", ".md", ".txt", ".png", ".jpg", ".pdf"];
+var EXCLUDED_EXTENSIONS = [".json", ".lock", ".md", ".txt", ".png", ".jpg", ".pdf", ".yml", ".yaml"];
 var isExcludedFile = (line, excludedExtensions) => {
   return excludedExtensions.some((ext) => line.toLowerCase().includes(ext));
 };

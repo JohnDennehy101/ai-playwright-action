@@ -2,7 +2,7 @@ import * as core from '@actions/core';
 import * as github from '@actions/github';
 import axios from 'axios';
 
-const EXCLUDED_EXTENSIONS = ['.json', '.lock', '.md', '.txt', '.png', '.jpg', '.pdf'];
+const EXCLUDED_EXTENSIONS = ['.json', '.lock', '.md', '.txt', '.png', '.jpg', '.pdf', '.yml', '.yaml'];
 
 const isExcludedFile = (line, excludedExtensions) => {
     return excludedExtensions.some(ext => line.toLowerCase().includes(ext));
