@@ -89,25 +89,33 @@ async function run() {
         core.info(`Would send to ${endpoint} with model_id: ${modelId}`);
         core.info(`Would send diff (first 500 chars): ${cleanDiff.substring(0, 500)}...`);
 
-        const mockGeneratedCode = `// Generated Playwright Test (TEST MODE) 
-   // test('should test the changes', async ({ page }) => {
-  // This is a test comment to verify the PR comment functionality
-  await page.goto('/');
-  // Add your test assertions here
-});`;
+        core.info('TEST MODE: Posting test comment to PR...');
+
+        const diffPreview = cleanDiff.length > 5000
+            ? cleanDiff.substring(0, 5000) + '\n\n... (truncated, see logs for full diff)'
+            : cleanDiff;
 
         core.info('TEST MODE: Posting test comment to PR...');
         await octokit.rest.issues.createComment({
             owner: context.repo.owner,
             repo: context.repo.repo,
             issue_number: context.payload.pull_request.number,
-            body: `### Generated Playwright Test (TEST MODE)\n\n\`\`\`javascript\n${mockGeneratedCode}\n\`\`\``
+            body: `### Generated Diff
+
+
+            #### Filtered Diff Sent to Model:
+\`\`\`diff
+${diffPreview}
+\`\`\`
+
+---
+*Note: This is a test run. The actual API call was skipped.*`
         });
 
         core.info('Test comment posted successfully!');
 
         /*
-        core.info(`Sending filtered diff to Qwen at ${host}...`);
+        core.info(`Sending filtered diff to Qwen at ${ host }...`);
         const response = await axios.post(endpoint, {
           diff: cleanDiff,
           model_id: modelId
