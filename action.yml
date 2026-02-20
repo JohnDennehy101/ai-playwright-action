@@ -1,0 +1,18 @@
+name: 'AI Playwright Test Generator'
+description: 'Analyses Playwright tests using AI based on PR diffs & generates missing tests'
+inputs:
+  github-token:
+    description: 'GitHub token for API access'
+    required: true
+  llm-api-key:
+    description: 'API key for LLM server'
+    required: true
+  llm-host:
+    description: 'Host address for LLM server'
+    required: true
+  model-id:
+    description: 'Model ID to use for generation'
+    required: true
+runs:
+  using: 'node24'
+  main: 'dist/index.js'
