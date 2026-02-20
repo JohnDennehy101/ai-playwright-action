@@ -3,8 +3,8 @@
     "version": "1.0.0",
     "main": "index.js",
     "scripts": {
-        "build": "esbuild index.js --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.js --external:@actions/core --external:@actions/github",
-        "build:prod": "esbuild index.js --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.js --minify --external:@actions/core --external:@actions/github",
+        "build": "esbuild index.js --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.js",
+        "build:prod": "esbuild index.js --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.js --minify",
         "test": "node index.js"
     },
     "dependencies": {
