@@ -1,7 +1,6 @@
 {
     "name": "ai-playwright-action",
     "version": "1.0.0",
-    "type": "module",
     "main": "index.js",
     "scripts": {
         "build": "esbuild index.js --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.js --external:@actions/core --external:@actions/github",

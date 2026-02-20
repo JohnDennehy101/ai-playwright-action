@@ -22,8 +22,8 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // index.js
-var core = __toESM(require("@actions/core"), 1);
-var github = __toESM(require("@actions/github"), 1);
+var core = __toESM(require("@actions/core"));
+var github = __toESM(require("@actions/github"));
 var EXCLUDED_EXTENSIONS = [".json", ".lock", ".md", ".txt", ".png", ".jpg", ".pdf"];
 var isExcludedFile = (line, excludedExtensions) => {
   return excludedExtensions.some((ext) => line.toLowerCase().includes(ext));
