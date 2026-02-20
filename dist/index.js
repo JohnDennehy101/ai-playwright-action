@@ -23563,22 +23563,23 @@ async function run() {
     info("TEST MODE: Skipping API call");
     info(`Would send to ${endpoint2} with model_id: ${modelId}`);
     info(`Would send diff (first 500 chars): ${cleanDiff.substring(0, 500)}...`);
-    const mockGeneratedCode = `// Generated Playwright Test (TEST MODE) 
-   // test('should test the changes', async ({ page }) => {
-  // This is a test comment to verify the PR comment functionality
-  await page.goto('/');
-  // Add your test assertions here
-});`;
+    info("TEST MODE: Posting test comment to PR...");
+    const diffPreview = cleanDiff.length > 5e3 ? cleanDiff.substring(0, 5e3) + "\n\n... (truncated, see logs for full diff)" : cleanDiff;
     info("TEST MODE: Posting test comment to PR...");
     await octokit.rest.issues.createComment({
       owner: context3.repo.owner,
       repo: context3.repo.repo,
       issue_number: context3.payload.pull_request.number,
-      body: `### Generated Playwright Test (TEST MODE)
+      body: `### Generated Diff
 
-\`\`\`javascript
-${mockGeneratedCode}
-\`\`\``
+
+            #### Filtered Diff Sent to Model:
+\`\`\`diff
+${diffPreview}
+\`\`\`
+
+---
+*Note: This is a test run. The actual API call was skipped.*`
     });
     info("Test comment posted successfully!");
     info("Test complete!");
