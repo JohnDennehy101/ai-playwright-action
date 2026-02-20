@@ -4,22 +4,69 @@ import axios from 'axios';
 
 const EXCLUDED_EXTENSIONS = ['.json', '.lock', '.md', '.txt', '.png', '.jpg', '.pdf', '.yml', '.yaml'];
 
-const isExcludedFile = (line, excludedExtensions) => {
-    return excludedExtensions.some(ext => line.toLowerCase().includes(ext));
+const extractFilePath = (line) => {
+    const diffGitMatch = line.match(/diff --git a\/(.+?) b\//);
+    if (diffGitMatch) {
+        return diffGitMatch[1];
+    }
+
+    const minusMatch = line.match(/^--- a\/(.+)$/);
+    if (minusMatch) {
+        return minusMatch[1];
+    }
+
+    const plusMatch = line.match(/^\+\+\+ b\/(.+)$/);
+    if (plusMatch) {
+        return plusMatch[1];
+    }
+
+    return null;
+};
+
+const hasExcludedExtension = (text, excludedExtensions) => {
+    return excludedExtensions.some(ext => text.toLowerCase().includes(ext));
+};
+
+const matchesExcludePattern = (filePath, excludePattern) => {
+    if (!excludePattern) {
+        return false;
+    }
+
+    try {
+        const regex = new RegExp(excludePattern);
+        return regex.test(filePath);
+    } catch (error) {
+        core.warning(`Invalid exclude-pattern regex: ${excludePattern}. Error: ${error.message}`);
+        return false;
+    }
+};
+
+const isExcludedFile = (line, excludedExtensions, excludePattern) => {
+    const filePath = extractFilePath(line);
+
+    if (!filePath) {
+        return hasExcludedExtension(line, excludedExtensions);
+    }
+
+    if (hasExcludedExtension(filePath, excludedExtensions)) {
+        return true;
+    }
+
+    return matchesExcludePattern(filePath, excludePattern);
 };
 
 const isDiffLine = (line) => {
     return line.startsWith('+++') || line.startsWith('---') || line.startsWith('+') || line.startsWith('-');
 };
 
-function filterDiff(rawDiff) {
+function filterDiff(rawDiff, excludePattern) {
     const lines = rawDiff.split('\n');
     const filtered = [];
     let shouldSkipFile = false;
 
     for (const line of lines) {
         if (line.startsWith('diff --git')) {
-            shouldSkipFile = isExcludedFile(line, EXCLUDED_EXTENSIONS);
+            shouldSkipFile = isExcludedFile(line, EXCLUDED_EXTENSIONS, excludePattern);
             continue;
         }
 
@@ -42,12 +89,53 @@ const validateInputs = (inputs) => {
     return missing;
 };
 
+const fetchPRDiff = async (octokit, context) => {
+    core.info('Fetching PR diff...');
+    const { data: rawDiff } = await octokit.rest.pulls.get({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        pull_number: context.payload.pull_request.number,
+        mediaType: { format: 'diff' },
+    });
+    return rawDiff;
+};
+
+const postTestComment = async (octokit, context, cleanDiff) => {
+    const diffPreview = cleanDiff.length > 5000
+        ? cleanDiff.substring(0, 5000) + '\n\n... (truncated, see logs for full diff)'
+        : cleanDiff;
+
+    await octokit.rest.issues.createComment({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        issue_number: context.payload.pull_request.number,
+        body: `### Generated Diff
+
+#### Filtered Diff Sent to Model:
+\`\`\`diff
+${diffPreview}
+\`\`\`
+
+---
+*Note: This is a test run. The actual API call was skipped.*`
+    });
+};
+
+const logDiffInfo = (cleanDiff, rawDiff) => {
+    core.info('=== FILTERED DIFF ===');
+    core.info(cleanDiff);
+    core.info('=== END FILTERED DIFF ===');
+    core.info(`Filtered diff length: ${cleanDiff.length} characters`);
+    core.info(`Original diff length: ${rawDiff.length} characters`);
+};
+
 async function run() {
     try {
         const token = core.getInput('github-token');
         const apiKey = core.getInput('llm-api-key');
         const host = core.getInput('llm-host');
         const modelId = core.getInput('model-id');
+        const excludePattern = core.getInput('exclude-pattern');
 
         const missingInputs = validateInputs({ token, apiKey, host, modelId });
         if (missingInputs.length > 0) {
@@ -64,21 +152,10 @@ async function run() {
             return;
         }
 
-        core.info('Fetching PR diff...');
-        const { data: rawDiff } = await octokit.rest.pulls.get({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            pull_number: context.payload.pull_request.number,
-            mediaType: { format: 'diff' },
-        });
+        const rawDiff = await fetchPRDiff(octokit, context);
+        const cleanDiff = filterDiff(rawDiff, excludePattern);
 
-        const cleanDiff = filterDiff(rawDiff);
-
-        core.info('=== FILTERED DIFF ===');
-        core.info(cleanDiff);
-        core.info('=== END FILTERED DIFF ===');
-        core.info(`Filtered diff length: ${cleanDiff.length} characters`);
-        core.info(`Original diff length: ${rawDiff.length} characters`);
+        logDiffInfo(cleanDiff, rawDiff)
 
         if (!cleanDiff || cleanDiff.length < 10) {
             core.info('Diff is empty or only contains excluded files. Skipping.');
@@ -90,28 +167,7 @@ async function run() {
         core.info(`Would send diff (first 500 chars): ${cleanDiff.substring(0, 500)}...`);
 
         core.info('TEST MODE: Posting test comment to PR...');
-
-        const diffPreview = cleanDiff.length > 5000
-            ? cleanDiff.substring(0, 5000) + '\n\n... (truncated, see logs for full diff)'
-            : cleanDiff;
-
-        core.info('TEST MODE: Posting test comment to PR...');
-        await octokit.rest.issues.createComment({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: context.payload.pull_request.number,
-            body: `### Generated Diff
-
-
-            #### Filtered Diff Sent to Model:
-\`\`\`diff
-${diffPreview}
-\`\`\`
-
----
-*Note: This is a test run. The actual API call was skipped.*`
-        });
-
+        await postTestComment(octokit, context, cleanDiff);
         core.info('Test comment posted successfully!');
 
         /*

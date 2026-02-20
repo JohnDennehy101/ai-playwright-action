@@ -1,5 +1,7 @@
 name: Test Action
 on:
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
     inputs:
       gpu_ip:
@@ -10,6 +12,10 @@ on:
         description: 'Model ID to use for generation'
         required: false
         default: 'Qwen/Qwen2.5-Coder-7B-Instruct'
+      exclude_pattern:
+        description: 'File patterns to exclude from diff analysis'
+        required: false
+        default: '^dist/'
 
 jobs:
   test:
@@ -27,3 +33,4 @@ jobs:
           llm-api-key: ${{ secrets.LLM_API_KEY }}
           llm-host: ${{ github.event.inputs.gpu_ip || secrets.GPU_SERVER_IP }}
           model-id: ${{ github.event.inputs.model_id || 'Qwen/Qwen2.5-Coder-7B-Instruct' }}
+          exclude-pattern: ${{ github.event.inputs.exclude_pattern || '^versions/' }}

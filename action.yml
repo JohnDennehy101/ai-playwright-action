@@ -13,6 +13,9 @@ inputs:
   model-id:
     description: 'Model ID to use for generation'
     required: true
+  exclude-pattern:
+    description: 'Optional regex pattern to exclude file paths (e.g., "^versions/")'
+    required: false
 runs:
   using: 'node24'
   main: 'dist/index.js'
