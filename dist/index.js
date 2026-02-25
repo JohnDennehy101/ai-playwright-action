@@ -19845,14 +19845,8 @@ function setFailed(message) {
   process.exitCode = ExitCode.Failure;
   error(message);
 }
-function debug(message) {
-  issueCommand("debug", {}, message);
-}
 function error(message, properties = {}) {
   issueCommand("error", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
-}
-function warning(message, properties = {}) {
-  issueCommand("warning", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
 function info(message) {
   process.stdout.write(message + os3.EOL);
@@ -23495,28 +23489,181 @@ function getOctokit(token, options, ...additionalPlugins) {
   return new GitHubWithPlugins(getOctokitOptions(token, options));
 }
 
-// index.js
-var EXCLUDED_EXTENSIONS = [".json", ".lock", ".md", ".txt", ".png", ".jpg", ".pdf", ".yml", ".yaml"];
+// utils/comment.js
 var MAX_COMMENT_LENGTH = 6e4;
-var parseCommaSeparated = (value, defaults2) => {
-  if (!value)
-    return defaults2;
-  return value.split(",").map((v) => v.trim()).filter(Boolean);
+var buildDiffCommentBody = (diffPreview) => {
+  return `### Generated Diff
+
+#### Filtered Diff Sent to Model:
+\`\`\`diff
+${diffPreview}
+\`\`\`
+
+---
+*Note: This is a test run. The actual API call was skipped.*`;
 };
+var buildFilesCommentBody = (title, chunkIndex, totalChunks, filesChunk) => {
+  let body = `### ${title} (${chunkIndex + 1}/${totalChunks})
+`;
+  for (const file of filesChunk) {
+    body += `
+**${file.path}** (${file.content.length} chars):
+`;
+    body += `\`\`\`typescript
+${file.content.substring(0, 500)}${file.content.length > 500 ? "..." : ""}
+\`\`\`
+`;
+  }
+  return body;
+};
+var chunkExistingFilesForComments = (existingFiles) => {
+  const chunks = [];
+  let currentChunk = [];
+  let currentLength = 0;
+  for (const file of existingFiles) {
+    const estimatedLength = file.path.length + file.content.substring(0, 500).length + 200;
+    if (currentLength + estimatedLength > MAX_COMMENT_LENGTH && currentChunk.length > 0) {
+      chunks.push(currentChunk);
+      currentChunk = [];
+      currentLength = 0;
+    }
+    currentChunk.push(file);
+    currentLength += estimatedLength;
+  }
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk);
+  }
+  return chunks;
+};
+var postFileChunks = async ({ gh, title, files }) => {
+  if (!files || !files.length)
+    return;
+  const chunks = chunkExistingFilesForComments(files);
+  const totalChunks = chunks.length;
+  for (let i = 0; i < totalChunks; i++) {
+    const body = buildFilesCommentBody(title, i, totalChunks, chunks[i]);
+    await gh.createComment(body);
+    if (i < totalChunks - 1)
+      await new Promise((r) => setTimeout(r, 1500));
+  }
+};
+var postTestComment = async ({
+  gh,
+  cleanDiff,
+  existingTests = [],
+  sourceFiles = []
+}) => {
+  const diffPreview = cleanDiff.length > 5e3 ? cleanDiff.substring(0, 5e3) + "\n\n... (truncated, see logs for full diff)" : cleanDiff;
+  await gh.createComment(buildDiffCommentBody(diffPreview));
+  await postFileChunks({
+    gh,
+    title: "Existing Test Files Included for Context",
+    files: existingTests
+  });
+  await postFileChunks({
+    gh,
+    title: "Existing Source Files Included for Context",
+    files: sourceFiles
+  });
+};
+var logDiffInfo = (cleanDiff, rawDiff) => {
+  info("=== FILTERED DIFF ===");
+  info(cleanDiff);
+  info("=== END FILTERED DIFF ===");
+  info(`Filtered diff length: ${cleanDiff.length} characters`);
+  info(`Original diff length: ${rawDiff.length} characters`);
+};
+
+// services/GitHubClientService.js
+var GitHubClient = class {
+  constructor(octokit, context3) {
+    this.octokit = octokit;
+    this.context = context3;
+  }
+  get repoOwner() {
+    return this.context.repo.owner;
+  }
+  get repoName() {
+    return this.context.repo.repo;
+  }
+  get prNumber() {
+    return this.context.payload.pull_request?.number;
+  }
+  #ensurePullRequest() {
+    if (!this.prNumber) {
+      throw new Error("No pull_request in context");
+    }
+  }
+  async #fetchPullRequest(extraOptions = {}) {
+    this.#ensurePullRequest();
+    const { data } = await this.octokit.rest.pulls.get({
+      owner: this.repoOwner,
+      repo: this.repoName,
+      pull_number: this.prNumber,
+      ...extraOptions
+    });
+    return data;
+  }
+  async getPullRequest() {
+    return this.#fetchPullRequest();
+  }
+  async getPullRequestDiff() {
+    return this.#fetchPullRequest({ mediaType: { format: "diff" } });
+  }
+  async getBaseRef() {
+    const pr = await this.getPullRequest();
+    return pr.base.ref;
+  }
+  async getFileContent(path, ref) {
+    try {
+      const { data } = await this.octokit.rest.repos.getContent({
+        owner: this.repoOwner,
+        repo: this.repoName,
+        path,
+        ref
+      });
+      if (!data) {
+        return null;
+      }
+      if (!("content" in data)) {
+        return null;
+      }
+      if (!data.content) {
+        return null;
+      }
+      const content = Buffer.from(data.content, "base64").toString("utf-8");
+      return { path, content };
+    } catch (err) {
+      if (err.status === 404) {
+        return null;
+      }
+      throw err;
+    }
+  }
+  async createComment(body) {
+    if (!this.prNumber) {
+      throw new Error("No pull_request in context");
+    }
+    await this.octokit.rest.issues.createComment({
+      owner: this.repoOwner,
+      repo: this.repoName,
+      issue_number: this.prNumber,
+      body
+    });
+  }
+};
+
+// utils/diff.js
+var EXCLUDED_EXTENSIONS = [".json", ".lock", ".md", ".txt", ".png", ".jpg", ".pdf", ".yml", ".yaml"];
 var extractFilePath = (line) => {
   const diffGitMatch = line.match(/diff --git a\/(.+?) b\//);
-  if (diffGitMatch) {
+  if (diffGitMatch)
     return diffGitMatch[1];
-  }
   const minusMatch = line.match(/^--- a\/(.+)$/);
-  if (minusMatch) {
+  if (minusMatch)
     return minusMatch[1];
-  }
   const plusMatch = line.match(/^\+\+\+ b\/(.+)$/);
-  if (plusMatch) {
-    return plusMatch[1];
-  }
-  return null;
+  return plusMatch ? plusMatch[1] : null;
 };
 var hasExcludedExtension = (text, excludedExtensions) => {
   return excludedExtensions.some((ext) => text.toLowerCase().includes(ext));
@@ -23529,9 +23676,12 @@ var matchesExcludePattern = (filePath, excludePattern) => {
     const regex = new RegExp(excludePattern);
     return regex.test(filePath);
   } catch (error2) {
-    warning(`Invalid exclude-pattern regex: ${excludePattern}. Error: ${error2.message}`);
+    core.warning(`Invalid exclude-pattern regex: ${excludePattern}. Error: ${error2.message}`);
     return false;
   }
+};
+var isDiffLine = (line) => {
+  return line.startsWith("+++") || line.startsWith("---") || line.startsWith("+") || line.startsWith("-");
 };
 var isExcludedFile = (line, excludedExtensions, excludePattern) => {
   const filePath = extractFilePath(line);
@@ -23542,9 +23692,6 @@ var isExcludedFile = (line, excludedExtensions, excludePattern) => {
     return true;
   }
   return matchesExcludePattern(filePath, excludePattern);
-};
-var isDiffLine = (line) => {
-  return line.startsWith("+++") || line.startsWith("---") || line.startsWith("+") || line.startsWith("-");
 };
 function filterDiff(rawDiff, excludePattern) {
   const lines = rawDiff.split("\n");
@@ -23562,118 +23709,12 @@ function filterDiff(rawDiff, excludePattern) {
   }
   return filtered.join("\n");
 }
-var validateInputs = (inputs) => {
-  const missing = [];
-  if (!inputs.token)
-    missing.push("github-token");
-  if (!inputs.apiKey)
-    missing.push("llm-api-key");
-  if (!inputs.host)
-    missing.push("llm-host");
-  if (!inputs.modelId)
-    missing.push("model-id");
-  return missing;
-};
-var fetchPRDiff = async (octokit, context3) => {
-  info("Fetching PR diff...");
-  const { data: rawDiff } = await octokit.rest.pulls.get({
-    owner: context3.repo.owner,
-    repo: context3.repo.repo,
-    pull_number: context3.payload.pull_request.number,
-    mediaType: { format: "diff" }
-  });
-  return rawDiff;
-};
-var buildDiffCommentBody = (diffPreview) => {
-  return `### Generated Diff
-
-#### Filtered Diff Sent to Model:
-\`\`\`diff
-${diffPreview}
-\`\`\`
-
----
-*Note: This is a test run. The actual API call was skipped.*`;
-};
-var buildTestsCommentBody = (chunkIndex, totalChunks, testsChunk) => {
-  let body = `### Existing Test Files Included for Context (${chunkIndex + 1}/${totalChunks})
-`;
-  for (const testFile of testsChunk) {
-    body += `
-**${testFile.path}** (${testFile.content.length} chars):
-`;
-    body += `\`\`\`typescript
-${testFile.content.substring(0, 500)}${testFile.content.length > 500 ? "..." : ""}
-\`\`\`
-`;
-  }
-  return body;
-};
-var chunkExistingTestsForComments = (existingTests) => {
-  const chunks = [];
-  let currentChunk = [];
-  let currentLength = 0;
-  for (const test of existingTests) {
-    const estimatedLength = test.path.length + test.content.substring(0, 500).length + 200;
-    if (currentLength + estimatedLength > MAX_COMMENT_LENGTH && currentChunk.length > 0) {
-      chunks.push(currentChunk);
-      currentChunk = [];
-      currentLength = 0;
-    }
-    currentChunk.push(test);
-    currentLength += estimatedLength;
-  }
-  if (currentChunk.length > 0) {
-    chunks.push(currentChunk);
-  }
-  return chunks;
-};
-var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-var postTestComment = async (octokit, context3, cleanDiff, existingTests = []) => {
-  const diffPreview = cleanDiff.length > 5e3 ? cleanDiff.substring(0, 5e3) + "\n\n... (truncated, see logs for full diff)" : cleanDiff;
-  const diffBody = buildDiffCommentBody(diffPreview);
-  await octokit.rest.issues.createComment({
-    owner: context3.repo.owner,
-    repo: context3.repo.repo,
-    issue_number: context3.payload.pull_request.number,
-    body: diffBody
-  });
-  if (existingTests.length === 0) {
-    return;
-  }
-  const chunks = chunkExistingTestsForComments(existingTests);
-  const totalChunks = chunks.length;
-  for (let i = 0; i < totalChunks; i++) {
-    const body = buildTestsCommentBody(i, totalChunks, chunks[i]);
-    await octokit.rest.issues.createComment({
-      owner: context3.repo.owner,
-      repo: context3.repo.repo,
-      issue_number: context3.payload.pull_request.number,
-      body
-    });
-    if (i < totalChunks - 1) {
-      await sleep(1500);
-    }
-  }
-};
-var logDiffInfo = (cleanDiff, rawDiff) => {
-  info("=== FILTERED DIFF ===");
-  info(cleanDiff);
-  info("=== END FILTERED DIFF ===");
-  info(`Filtered diff length: ${cleanDiff.length} characters`);
-  info(`Original diff length: ${rawDiff.length} characters`);
-};
 var getChangedFilesFromDiff = (rawDiff) => {
   const lines = rawDiff.split("\n");
-  const files = /* @__PURE__ */ new Set();
-  for (const line of lines) {
-    const filePath = extractFilePath(line);
-    if (filePath) {
-      files.add(filePath);
-    }
-  }
-  return Array.from(files);
+  return Array.from(new Set(lines.map(extractFilePath).filter(Boolean)));
 };
+
+// utils/filePaths.js
 var buildSameDirectoryTestPaths = (withoutExt, ext, suffixes) => {
   return suffixes.map((suffix) => `${withoutExt}${suffix}${ext}`);
 };
@@ -23688,6 +23729,19 @@ var buildSiblingTestsPaths = (withoutExt, ext, suffixes) => {
     return [];
   }
   return suffixes.map((suffix) => `${dir}/__tests__/${base}${suffix}${ext}`);
+};
+var isSourceFilePath = (filePath, sourceExts, testSuffixes) => {
+  if (!filePath || typeof filePath !== "string")
+    return false;
+  const hasSourceExt = sourceExts.some((ext) => filePath.endsWith(ext));
+  if (!hasSourceExt)
+    return false;
+  const withoutExt = sourceExts.reduce(
+    (acc, ext) => acc.endsWith(ext) ? acc.slice(0, -ext.length) : acc,
+    filePath
+  );
+  const isTestLike = testSuffixes.some((sfx) => withoutExt.endsWith(sfx));
+  return !isTestLike;
 };
 var buildRootMirrorTestPaths = (filePath, ext, suffixes, roots) => {
   const paths = [];
@@ -23706,180 +23760,149 @@ var buildRootMirrorTestPaths = (filePath, ext, suffixes, roots) => {
   }
   return paths;
 };
-var getCandidateTestPathsForFile = (filePath, testFileSuffixes, testFileRoots) => {
-  if (!filePath || typeof filePath !== "string") {
-    return [];
+
+// services/ContextService.js
+var ContextService = class {
+  constructor(ghClient) {
+    this.gh = ghClient;
+    this.MAX_FILES = 10;
+    this.MAX_FILE_SIZE = 4e3;
   }
-  const exts = [".ts", ".tsx", ".js", ".jsx"];
-  const ext = exts.find((e) => filePath.endsWith(e));
-  if (!ext) {
-    return [];
-  }
-  const withoutExt = filePath.slice(0, -ext.length);
-  const candidates = [];
-  const isAlreadyTestFile = testFileSuffixes.some((suffix) => withoutExt.endsWith(suffix));
-  if (isAlreadyTestFile) {
-    candidates.push(filePath);
-  }
-  candidates.push(
-    ...buildSameDirectoryTestPaths(withoutExt, ext, testFileSuffixes),
-    ...buildSiblingTestsPaths(withoutExt, ext, testFileSuffixes),
-    ...buildRootMirrorTestPaths(filePath, ext, testFileSuffixes, testFileRoots)
-  );
-  return Array.from(new Set(candidates));
-};
-var fetchBaseRef = async (octokit, context3) => {
-  const pr = await octokit.rest.pulls.get({
-    owner: context3.repo.owner,
-    repo: context3.repo.repo,
-    pull_number: context3.payload.pull_request.number
-  });
-  return pr.data.base.ref;
-};
-var fetchTestFileContent = async ({ octokit, context: context3, candidatePath, ref, maxFileSize }) => {
-  try {
-    const { data } = await octokit.rest.repos.getContent({
-      owner: context3.repo.owner,
-      repo: context3.repo.repo,
-      path: candidatePath,
-      ref
-    });
-    if (!data) {
-      return null;
-    }
-    if (!("content" in data)) {
-      return null;
-    }
-    if (!data.content) {
-      return null;
-    }
-    const content = Buffer.from(data.content, "base64").toString("utf-8");
-    return {
-      path: candidatePath,
-      content: content.substring(0, maxFileSize)
-    };
-  } catch (err) {
-    debug(`No test file at ${candidatePath}: ${err.message}`);
-  }
-  return null;
-};
-var collectTestsForFile = async ({
-  octokit,
-  context: context3,
-  filePath,
-  baseRef,
-  maxFiles,
-  maxFileSize,
-  seenPaths,
-  testFiles,
-  testFileSuffixes,
-  testFileRoots
-}) => {
-  if (testFiles.length >= maxFiles)
-    return;
-  const candidatePaths = getCandidateTestPathsForFile(filePath, testFileSuffixes, testFileRoots);
-  for (const candidate of candidatePaths) {
-    if (testFiles.length >= maxFiles)
-      break;
-    if (seenPaths.has(candidate))
-      continue;
-    seenPaths.add(candidate);
-    const testFile = await fetchTestFileContent({
-      octokit,
-      context: context3,
-      candidatePath: candidate,
-      ref: baseRef,
-      maxFileSize
-    });
-    if (testFile) {
-      testFiles.push(testFile);
-      info(`Found related test file: ${candidate}`);
-    }
-  }
-};
-var fetchExistingTestFiles = async ({ octokit, context: context3, rawDiff, testFileSuffixes, testFileRoots }) => {
-  info("Fetching existing test files for changed files from base branch...");
-  const MAX_FILES = 10;
-  const MAX_FILE_SIZE = 4e3;
-  try {
-    const baseRef = await fetchBaseRef(octokit, context3);
+  async fetchRelatedFiles(rawDiff, config) {
+    const baseRef = await this.gh.getBaseRef();
     const changedFiles = getChangedFilesFromDiff(rawDiff);
-    const testFiles = [];
     const seenPaths = /* @__PURE__ */ new Set();
-    for (const filePath of changedFiles) {
-      if (testFiles.length >= MAX_FILES)
-        break;
-      await collectTestsForFile({
-        octokit,
-        context: context3,
-        filePath,
-        baseRef,
-        maxFiles: MAX_FILES,
-        maxFileSize: MAX_FILE_SIZE,
-        seenPaths,
-        testFiles,
-        testFileSuffixes,
-        testFileRoots
-      });
-    }
-    info(`Collected ${testFiles.length} related test file(s) for context`);
-    return testFiles;
-  } catch (error2) {
-    warning(`Failed to fetch existing test files: ${error2.message}`);
-    return [];
+    const tasks = changedFiles.map(async (filePath) => {
+      const fileResults = { tests: [], source: null };
+      if (config.includeTests) {
+        fileResults.tests = await this.#findTestsForFile(filePath, baseRef, config, seenPaths);
+      }
+      if (config.includeSources) {
+        fileResults.source = await this.#findSourceFile(filePath, baseRef, config, seenPaths);
+      }
+      return fileResults;
+    });
+    const allResults = await Promise.all(tasks);
+    const finalTests = allResults.flatMap((r) => r.tests).slice(0, this.MAX_FILES);
+    const finalSources = allResults.map((r) => r.source).filter(Boolean).slice(0, this.MAX_FILES);
+    return { tests: finalTests, sources: finalSources };
   }
+  async #findTestsForFile(filePath, ref, config, seenPaths) {
+    const exts = [".ts", ".tsx", ".js", ".jsx"];
+    const ext = exts.find((e) => filePath.endsWith(e));
+    if (!ext)
+      return [];
+    const withoutExt = filePath.slice(0, -ext.length);
+    const suffixes = config.testFileSuffixes;
+    const candidates = /* @__PURE__ */ new Set([
+      ...buildSameDirectoryTestPaths(withoutExt, ext, suffixes),
+      ...buildSiblingTestsPaths(withoutExt, ext, suffixes),
+      ...buildRootMirrorTestPaths(filePath, ext, suffixes, config.testFileRoots)
+    ]);
+    const foundFiles = [];
+    for (const path of candidates) {
+      if (seenPaths.has(path) || foundFiles.length >= this.MAX_FILES)
+        continue;
+      const file = await this.gh.getFileContent(path, ref);
+      if (file) {
+        seenPaths.add(path);
+        foundFiles.push({
+          path: file.path,
+          content: file.content.substring(0, this.MAX_FILE_SIZE)
+        });
+      }
+    }
+    return foundFiles;
+  }
+  async #findSourceFile(filePath, ref, config, seenPaths) {
+    if (seenPaths.has(filePath))
+      return null;
+    const isSource = isSourceFilePath(filePath, [".ts", ".tsx", ".js", ".jsx"], config.testFileSuffixes);
+    if (!isSource)
+      return null;
+    const file = await this.gh.getFileContent(filePath, ref);
+    if (file) {
+      seenPaths.add(filePath);
+      return {
+        path: file.path,
+        content: file.content.substring(0, this.MAX_FILE_SIZE)
+      };
+    }
+    return null;
+  }
+};
+
+// index.js
+var parseCommaSeparated = (value, defaults2) => {
+  if (!value)
+    return defaults2;
+  return value.split(",").map((v) => v.trim()).filter(Boolean);
+};
+var validateInputs = (inputs) => {
+  const missing = [];
+  if (!inputs.token)
+    missing.push("github-token");
+  if (!inputs.apiKey)
+    missing.push("llm-api-key");
+  if (!inputs.host)
+    missing.push("llm-host");
+  if (!inputs.modelId)
+    missing.push("model-id");
+  return missing;
 };
 async function run() {
   try {
-    const token = getInput("github-token");
-    const apiKey = getInput("llm-api-key");
-    const host = getInput("llm-host");
-    const modelId = getInput("model-id");
-    const excludePattern = getInput("exclude-pattern");
-    const includeExistingTests = getInput("include-existing-tests") === "true";
-    const testFileSuffixes = parseCommaSeparated(
-      getInput("test-file-suffixes"),
-      [".spec", ".test", ".e2e", ".playwright"]
-    );
-    const testFileRoots = parseCommaSeparated(
-      getInput("test-file-roots"),
-      ["src", "app", "packages/app"]
-    );
-    const missingInputs = validateInputs({ token, apiKey, host, modelId });
+    const inputs = {
+      token: getInput("github-token"),
+      apiKey: getInput("llm-api-key"),
+      host: getInput("llm-host"),
+      modelId: getInput("model-id"),
+      excludePattern: getInput("exclude-pattern"),
+      includeExistingTests: getInput("include-existing-tests") === "true",
+      includeSourceFiles: getInput("include-source-files") === "true",
+      testFileSuffixes: parseCommaSeparated(
+        getInput("test-file-suffixes"),
+        [".spec", ".test", ".e2e", ".playwright"]
+      ),
+      testFileRoots: parseCommaSeparated(
+        getInput("test-file-roots"),
+        ["src", "app", "packages/app"]
+      )
+    };
+    const missingInputs = validateInputs(inputs);
     if (missingInputs.length > 0) {
       setFailed(`Missing required inputs: ${missingInputs.join(", ")}`);
       return;
     }
-    const endpoint2 = `http://${host}:8000/generate-test`;
-    const octokit = getOctokit(token);
-    const context3 = context2;
-    if (!context3.payload.pull_request) {
+    const octokit = getOctokit(inputs.token);
+    const gh = new GitHubClient(octokit, context2);
+    const contextService = new ContextService(gh);
+    if (!gh.prNumber) {
       setFailed("No Pull Request found. This action only runs on PRs.");
       return;
     }
-    const rawDiff = await fetchPRDiff(octokit, context3);
-    const cleanDiff = filterDiff(rawDiff, excludePattern);
+    const rawDiff = await gh.getPullRequestDiff();
+    const cleanDiff = filterDiff(rawDiff, inputs.excludePattern);
     logDiffInfo(cleanDiff, rawDiff);
     if (!cleanDiff || cleanDiff.length < 10) {
       info("Diff is empty or only contains excluded files. Skipping.");
       return;
     }
-    let existingTests = [];
-    if (includeExistingTests) {
-      existingTests = await fetchExistingTestFiles({
-        octokit,
-        context: context3,
-        rawDiff,
-        testFileSuffixes,
-        testFileRoots
-      });
-    }
+    const { tests, sources } = await contextService.fetchRelatedFiles(rawDiff, {
+      includeTests: inputs.includeExistingTests,
+      includeSources: inputs.includeSourceFiles,
+      testFileSuffixes: inputs.testFileSuffixes,
+      testFileRoots: inputs.testFileRoots
+    });
     info("TEST MODE: Skipping API call");
-    info(`Would send to ${endpoint2} with model_id: ${modelId}`);
-    info(`Would send diff (first 500 chars): ${cleanDiff.substring(0, 500)}...`);
+    info(`Would send to http://${inputs.host}:8000/generate-test with model_id: ${inputs.modelId}`);
     info("TEST MODE: Posting test comment to PR...");
-    await postTestComment(octokit, context3, cleanDiff, existingTests);
-    info("Test comment posted successfully!");
+    await postTestComment({
+      gh,
+      cleanDiff,
+      existingTests: tests,
+      sourceFiles: sources
+    });
     info("Test complete!");
   } catch (error2) {
     if (error2.response) {
