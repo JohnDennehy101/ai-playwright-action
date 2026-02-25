@@ -23615,23 +23615,30 @@ var GitHubClient = class {
     return pr.base.ref;
   }
   async getFileContent(path, ref) {
-    const { data } = await this.octokit.rest.repos.getContent({
-      owner: this.repoOwner,
-      repo: this.repoName,
-      path,
-      ref
-    });
-    if (!data) {
-      return null;
+    try {
+      const { data } = await this.octokit.rest.repos.getContent({
+        owner: this.repoOwner,
+        repo: this.repoName,
+        path,
+        ref
+      });
+      if (!data) {
+        return null;
+      }
+      if (!("content" in data)) {
+        return null;
+      }
+      if (!data.content) {
+        return null;
+      }
+      const content = Buffer.from(data.content, "base64").toString("utf-8");
+      return { path, content };
+    } catch (err) {
+      if (err.status === 404) {
+        return null;
+      }
+      throw err;
     }
-    if (!("content" in data)) {
-      return null;
-    }
-    if (!data.content) {
-      return null;
-    }
-    const content = Buffer.from(data.content, "base64").toString("utf-8");
-    return { path, content };
   }
   async createComment(body) {
     if (!this.prNumber) {
