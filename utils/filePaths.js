@@ -24,13 +24,10 @@ export const isSourceFilePath = (filePath, sourceExts, testSuffixes) => {
     const hasSourceExt = sourceExts.some(ext => filePath.endsWith(ext));
     if (!hasSourceExt) return false;
 
-    const withoutExt = sourceExts.reduce(
-        (acc, ext) => (acc.endsWith(ext) ? acc.slice(0, -ext.length) : acc),
-        filePath
-    );
+    const fileName = filePath.split('/').pop();
+    const isTestFile = testSuffixes.some(suffix => fileName.includes(suffix));
 
-    const isTestLike = testSuffixes.some(sfx => withoutExt.endsWith(sfx));
-    return !isTestLike;
+    return !isTestFile;
 };
 
 export const buildRootMirrorTestPaths = (filePath, ext, suffixes, roots) => {
