@@ -23655,6 +23655,11 @@ var GitHubClient = class {
       body
     });
   }
+  async findFileByName(fileName) {
+    const q = `filename:${fileName} repo:${this.repoOwner}/${this.repoName}`;
+    const { data } = await this.octokit.rest.search.code({ q });
+    return data.items.length > 0 ? data.items[0].path : null;
+  }
 };
 
 // utils/diff.js
@@ -23761,6 +23766,21 @@ var buildRootMirrorTestPaths = (filePath, ext, suffixes, roots) => {
   }
   return paths;
 };
+var getLogicNameFromTest = (filePath, testSuffixes) => {
+  const fileName = filePath.split("/").pop();
+  const exts = [".tsx", ".ts", ".jsx", ".js"];
+  const ext = exts.find((e) => fileName.endsWith(e));
+  if (!ext)
+    return null;
+  let baseName = fileName.slice(0, -ext.length);
+  for (const suffix of testSuffixes) {
+    if (baseName.endsWith(suffix)) {
+      baseName = baseName.slice(0, -suffix.length);
+      break;
+    }
+  }
+  return `${baseName}${ext}`;
+};
 
 // services/ContextService.js
 var ContextService = class {
@@ -23788,7 +23808,7 @@ var ContextService = class {
           fileResults.source = await this.#findLogicForTestFile(
             filePath,
             headRef,
-            config.testFileSuffixes,
+            config,
             seenPaths
           );
         }
@@ -23827,17 +23847,20 @@ var ContextService = class {
     }
     return foundFiles;
   }
-  async #findLogicForTestFile(testPath, ref, testSuffixes, seenPaths) {
-    let potentialLogicPath = testPath;
-    for (const suffix of testSuffixes) {
-      potentialLogicPath = potentialLogicPath.replace(suffix, "");
-    }
-    if (potentialLogicPath === testPath || seenPaths.has(potentialLogicPath)) {
+  #isValidContextPath(path, originalPath, seenPaths) {
+    return path && path !== originalPath && !seenPaths.has(path);
+  }
+  async #findLogicForTestFile(testPath, ref, config, seenPaths) {
+    const logicFileName = getLogicNameFromTest(testPath, config.testFileSuffixes);
+    if (!logicFileName)
+      return null;
+    const discoveredPath = await this.gh.findFileByName(logicFileName);
+    if (!this.#isValidContextPath(discoveredPath, testPath, seenPaths)) {
       return null;
     }
-    const file = await this.gh.getFileContent(potentialLogicPath, ref);
+    const file = await this.gh.getFileContent(discoveredPath, ref);
     if (file) {
-      seenPaths.add(potentialLogicPath);
+      seenPaths.add(discoveredPath);
       return {
         path: file.path,
         content: file.content.substring(0, this.MAX_FILE_SIZE)

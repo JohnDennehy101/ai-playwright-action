@@ -94,4 +94,11 @@ export class GitHubClient {
             body,
         });
     }
+
+    async findFileByName(fileName) {
+        const q = `filename:${fileName} repo:${this.repoOwner}/${this.repoName}`;
+        const { data } = await this.octokit.rest.search.code({ q });
+
+        return data.items.length > 0 ? data.items[0].path : null;
+    }
 }
