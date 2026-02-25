@@ -16,6 +16,18 @@ inputs:
   exclude-pattern:
     description: 'Optional regex pattern to exclude file paths (e.g., "^versions/")'
     required: false
+  include-existing-tests:
+    description: 'Include existing test files from base branch for context (true/false)'
+    required: false
+    default: 'false'
+  test-file-suffixes:
+    description: 'Comma-separated test suffixes (e.g., ".spec,.test,.e2e,.playwright")'
+    required: false
+    default: '.spec,.test,.e2e,.playwright'
+  test-file-roots:
+    description: 'Comma-separated source roots where tests are located (e.g., "src,app,packages/app")'
+    required: false
+    default: 'src,app,packages/app'
 runs:
   using: 'node24'
   main: 'dist/index.js'
