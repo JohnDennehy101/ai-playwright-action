@@ -3,7 +3,8 @@ import {
     buildSameDirectoryTestPaths,
     buildSiblingTestsPaths,
     buildRootMirrorTestPaths,
-    isSourceFilePath
+    isSourceFilePath,
+    getLogicNameFromTest
 } from '../utils/filePaths.js';
 
 export class ContextService {
@@ -37,7 +38,7 @@ export class ContextService {
                     fileResults.source = await this.#findLogicForTestFile(
                         filePath,
                         headRef,
-                        config.testFileSuffixes,
+                        config,
                         seenPaths
                     );
                 }
@@ -90,24 +91,34 @@ export class ContextService {
         return foundFiles;
     }
 
-    async #findLogicForTestFile(testPath, ref, testSuffixes, seenPaths) {
-        let potentialLogicPath = testPath;
-        for (const suffix of testSuffixes) {
-            potentialLogicPath = potentialLogicPath.replace(suffix, '');
-        }
+    #isValidContextPath(path, originalPath, seenPaths) {
+        return (
+            path &&
+            path !== originalPath &&
+            !seenPaths.has(path)
+        );
+    }
 
-        if (potentialLogicPath === testPath || seenPaths.has(potentialLogicPath)) {
+    async #findLogicForTestFile(testPath, ref, config, seenPaths) {
+        const logicFileName = getLogicNameFromTest(testPath, config.testFileSuffixes);
+
+        if (!logicFileName) return null;
+
+        const discoveredPath = await this.gh.findFileByName(logicFileName);
+
+        if (!this.#isValidContextPath(discoveredPath, testPath, seenPaths)) {
             return null;
         }
 
-        const file = await this.gh.getFileContent(potentialLogicPath, ref);
+        const file = await this.gh.getFileContent(discoveredPath, ref);
         if (file) {
-            seenPaths.add(potentialLogicPath);
+            seenPaths.add(discoveredPath);
             return {
                 path: file.path,
                 content: file.content.substring(0, this.MAX_FILE_SIZE)
             };
         }
+
         return null;
     }
 

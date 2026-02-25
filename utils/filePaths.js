@@ -79,3 +79,22 @@ export const getCandidateTestPathsForFile = (filePath, testFileSuffixes, testFil
 
     return Array.from(new Set(candidates));
 };
+
+export const getLogicNameFromTest = (filePath, testSuffixes) => {
+    const fileName = filePath.split('/').pop();
+
+    const exts = ['.tsx', '.ts', '.jsx', '.js'];
+    const ext = exts.find(e => fileName.endsWith(e));
+    if (!ext) return null;
+
+    let baseName = fileName.slice(0, -ext.length);
+
+    for (const suffix of testSuffixes) {
+        if (baseName.endsWith(suffix)) {
+            baseName = baseName.slice(0, -suffix.length);
+            break;
+        }
+    }
+
+    return `${baseName}${ext}`;
+};
