@@ -46,6 +46,11 @@ export class GitHubClient {
         return pr.base.ref;
     }
 
+    async getHeadRef() {
+        const pr = await this.getPullRequest();
+        return pr.head.sha;
+    }
+
     async getFileContent(path, ref) {
         try {
             const { data } = await this.octokit.rest.repos.getContent({
