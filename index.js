@@ -217,43 +217,71 @@ const getChangedFilesFromDiff = (rawDiff) => {
     return Array.from(files);
 };
 
+const buildSameDirectoryTestPaths = (withoutExt, ext, suffixes) => {
+    return suffixes.map(suffix => `${withoutExt}${suffix}${ext}`);
+};
+
+const buildSiblingTestsPaths = (withoutExt, ext, suffixes) => {
+    const lastSlash = withoutExt.lastIndexOf('/');
+    if (lastSlash === -1) {
+        return [];
+    }
+
+    const dir = withoutExt.slice(0, lastSlash);
+    const base = withoutExt.slice(lastSlash + 1);
+    if (!dir || !base) {
+        return [];
+    }
+
+    return suffixes.map(suffix => `${dir}/__tests__/${base}${suffix}${ext}`);
+};
+
+const buildRootMirrorTestPaths = (filePath, ext, suffixes, roots) => {
+    const paths = [];
+
+    for (const rootRaw of roots) {
+        const root = rootRaw.endsWith('/') ? rootRaw : `${rootRaw}/`;
+        if (!filePath.startsWith(root)) {
+            continue;
+        }
+
+        const rel = filePath.slice(root.length);
+        if (!rel) {
+            continue;
+        }
+
+        for (const suffix of suffixes) {
+            paths.push(`tests/${rel.replace(ext, `${suffix}${ext}`)}`);
+        }
+    }
+
+    return paths;
+};
+
 const getCandidateTestPathsForFile = (filePath, testFileSuffixes, testFileRoots) => {
     if (!filePath || typeof filePath !== 'string') {
         return [];
     }
 
-    const candidates = [];
     const exts = ['.ts', '.tsx', '.js', '.jsx'];
     const ext = exts.find(e => filePath.endsWith(e));
-    if (!ext) return candidates;
+    if (!ext) {
+        return [];
+    }
 
     const withoutExt = filePath.slice(0, -ext.length);
+    const candidates = [];
 
-    for (const suffix of testFileSuffixes) {
-        candidates.push(`${withoutExt}${suffix}${ext}`);
+    const isAlreadyTestFile = testFileSuffixes.some(suffix => withoutExt.endsWith(suffix));
+    if (isAlreadyTestFile) {
+        candidates.push(filePath);
     }
 
-    const lastSlash = withoutExt.lastIndexOf('/');
-    if (lastSlash !== -1) {
-        const dir = withoutExt.slice(0, lastSlash);
-        const base = withoutExt.slice(lastSlash + 1);
-        if (dir && base) {
-            for (const suffix of testFileSuffixes) {
-                candidates.push(`${dir}/__tests__/${base}${suffix}${ext}`);
-            }
-        }
-    }
-
-    for (const rootRaw of testFileRoots) {
-        const root = rootRaw.endsWith('/') ? rootRaw : `${rootRaw}/`;
-        if (filePath.startsWith(root)) {
-            const rel = filePath.slice(root.length);
-            if (!rel) continue;
-            for (const suffix of testFileSuffixes) {
-                candidates.push(`tests/${rel.replace(ext, `${suffix}${ext}`)}`);
-            }
-        }
-    }
+    candidates.push(
+        ...buildSameDirectoryTestPaths(withoutExt, ext, testFileSuffixes),
+        ...buildSiblingTestsPaths(withoutExt, ext, testFileSuffixes),
+        ...buildRootMirrorTestPaths(filePath, ext, testFileSuffixes, testFileRoots),
+    );
 
     return Array.from(new Set(candidates));
 };
