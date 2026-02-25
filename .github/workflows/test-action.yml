@@ -16,6 +16,18 @@ on:
         description: 'File patterns to exclude from diff analysis'
         required: false
         default: '^dist/'
+      include_existing_tests:
+        description: 'Include existing test files from base branch (true/false)'
+        required: false
+        default: 'true'
+      test_file_suffixes:
+        description: 'Comma-separated test suffixes'
+        required: false
+        default: '.spec,.test,.e2e,.playwright'
+      test_file_roots:
+        description: 'Comma-separated source roots for tests'
+        required: false
+        default: 'src,app,packages/app'
 
 jobs:
   test:
@@ -34,3 +46,6 @@ jobs:
           llm-host: ${{ github.event.inputs.gpu_ip || secrets.GPU_SERVER_IP }}
           model-id: ${{ github.event.inputs.model_id || 'Qwen/Qwen2.5-Coder-7B-Instruct' }}
           exclude-pattern: ${{ github.event.inputs.exclude_pattern || '^versions/' }}
+          include-existing-tests: ${{ github.event.inputs.include_existing_tests || 'true' }}
+          test-file-suffixes: ${{ github.event.inputs.test_file_suffixes || '.spec,.test,.e2e,.playwright' }}
+          test-file-roots: ${{ github.event.inputs.test_file_roots || 'src,app,packages/app' }}

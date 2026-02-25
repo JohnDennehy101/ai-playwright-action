@@ -19845,6 +19845,9 @@ function setFailed(message) {
   process.exitCode = ExitCode.Failure;
   error(message);
 }
+function debug(message) {
+  issueCommand("debug", {}, message);
+}
 function error(message, properties = {}) {
   issueCommand("error", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
@@ -23494,6 +23497,12 @@ function getOctokit(token, options, ...additionalPlugins) {
 
 // index.js
 var EXCLUDED_EXTENSIONS = [".json", ".lock", ".md", ".txt", ".png", ".jpg", ".pdf", ".yml", ".yaml"];
+var MAX_COMMENT_LENGTH = 6e4;
+var parseCommaSeparated = (value, defaults2) => {
+  if (!value)
+    return defaults2;
+  return value.split(",").map((v) => v.trim()).filter(Boolean);
+};
 var extractFilePath = (line) => {
   const diffGitMatch = line.match(/diff --git a\/(.+?) b\//);
   if (diffGitMatch) {
@@ -23575,13 +23584,8 @@ var fetchPRDiff = async (octokit, context3) => {
   });
   return rawDiff;
 };
-var postTestComment = async (octokit, context3, cleanDiff) => {
-  const diffPreview = cleanDiff.length > 5e3 ? cleanDiff.substring(0, 5e3) + "\n\n... (truncated, see logs for full diff)" : cleanDiff;
-  await octokit.rest.issues.createComment({
-    owner: context3.repo.owner,
-    repo: context3.repo.repo,
-    issue_number: context3.payload.pull_request.number,
-    body: `### Generated Diff
+var buildDiffCommentBody = (diffPreview) => {
+  return `### Generated Diff
 
 #### Filtered Diff Sent to Model:
 \`\`\`diff
@@ -23589,8 +23593,68 @@ ${diffPreview}
 \`\`\`
 
 ---
-*Note: This is a test run. The actual API call was skipped.*`
+*Note: This is a test run. The actual API call was skipped.*`;
+};
+var buildTestsCommentBody = (chunkIndex, totalChunks, testsChunk) => {
+  let body = `### Existing Test Files Included for Context (${chunkIndex + 1}/${totalChunks})
+`;
+  for (const testFile of testsChunk) {
+    body += `
+**${testFile.path}** (${testFile.content.length} chars):
+`;
+    body += `\`\`\`typescript
+${testFile.content.substring(0, 500)}${testFile.content.length > 500 ? "..." : ""}
+\`\`\`
+`;
+  }
+  return body;
+};
+var chunkExistingTestsForComments = (existingTests) => {
+  const chunks = [];
+  let currentChunk = [];
+  let currentLength = 0;
+  for (const test of existingTests) {
+    const estimatedLength = test.path.length + test.content.substring(0, 500).length + 200;
+    if (currentLength + estimatedLength > MAX_COMMENT_LENGTH && currentChunk.length > 0) {
+      chunks.push(currentChunk);
+      currentChunk = [];
+      currentLength = 0;
+    }
+    currentChunk.push(test);
+    currentLength += estimatedLength;
+  }
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk);
+  }
+  return chunks;
+};
+var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+var postTestComment = async (octokit, context3, cleanDiff, existingTests = []) => {
+  const diffPreview = cleanDiff.length > 5e3 ? cleanDiff.substring(0, 5e3) + "\n\n... (truncated, see logs for full diff)" : cleanDiff;
+  const diffBody = buildDiffCommentBody(diffPreview);
+  await octokit.rest.issues.createComment({
+    owner: context3.repo.owner,
+    repo: context3.repo.repo,
+    issue_number: context3.payload.pull_request.number,
+    body: diffBody
   });
+  if (existingTests.length === 0) {
+    return;
+  }
+  const chunks = chunkExistingTestsForComments(existingTests);
+  const totalChunks = chunks.length;
+  for (let i = 0; i < totalChunks; i++) {
+    const body = buildTestsCommentBody(i, totalChunks, chunks[i]);
+    await octokit.rest.issues.createComment({
+      owner: context3.repo.owner,
+      repo: context3.repo.repo,
+      issue_number: context3.payload.pull_request.number,
+      body
+    });
+    if (i < totalChunks - 1) {
+      await sleep(1500);
+    }
+  }
 };
 var logDiffInfo = (cleanDiff, rawDiff) => {
   info("=== FILTERED DIFF ===");
@@ -23599,6 +23663,154 @@ var logDiffInfo = (cleanDiff, rawDiff) => {
   info(`Filtered diff length: ${cleanDiff.length} characters`);
   info(`Original diff length: ${rawDiff.length} characters`);
 };
+var getChangedFilesFromDiff = (rawDiff) => {
+  const lines = rawDiff.split("\n");
+  const files = /* @__PURE__ */ new Set();
+  for (const line of lines) {
+    const filePath = extractFilePath(line);
+    if (filePath) {
+      files.add(filePath);
+    }
+  }
+  return Array.from(files);
+};
+var getCandidateTestPathsForFile = (filePath, testFileSuffixes, testFileRoots) => {
+  if (!filePath || typeof filePath !== "string") {
+    return [];
+  }
+  const candidates = [];
+  const exts = [".ts", ".tsx", ".js", ".jsx"];
+  const ext = exts.find((e) => filePath.endsWith(e));
+  if (!ext)
+    return candidates;
+  const withoutExt = filePath.slice(0, -ext.length);
+  for (const suffix of testFileSuffixes) {
+    candidates.push(`${withoutExt}${suffix}${ext}`);
+  }
+  const lastSlash = withoutExt.lastIndexOf("/");
+  if (lastSlash !== -1) {
+    const dir = withoutExt.slice(0, lastSlash);
+    const base = withoutExt.slice(lastSlash + 1);
+    if (dir && base) {
+      for (const suffix of testFileSuffixes) {
+        candidates.push(`${dir}/__tests__/${base}${suffix}${ext}`);
+      }
+    }
+  }
+  for (const rootRaw of testFileRoots) {
+    const root = rootRaw.endsWith("/") ? rootRaw : `${rootRaw}/`;
+    if (filePath.startsWith(root)) {
+      const rel = filePath.slice(root.length);
+      if (!rel)
+        continue;
+      for (const suffix of testFileSuffixes) {
+        candidates.push(`tests/${rel.replace(ext, `${suffix}${ext}`)}`);
+      }
+    }
+  }
+  return Array.from(new Set(candidates));
+};
+var fetchBaseRef = async (octokit, context3) => {
+  const pr = await octokit.rest.pulls.get({
+    owner: context3.repo.owner,
+    repo: context3.repo.repo,
+    pull_number: context3.payload.pull_request.number
+  });
+  return pr.data.base.ref;
+};
+var fetchTestFileContent = async ({ octokit, context: context3, candidatePath, ref, maxFileSize }) => {
+  try {
+    const { data } = await octokit.rest.repos.getContent({
+      owner: context3.repo.owner,
+      repo: context3.repo.repo,
+      path: candidatePath,
+      ref
+    });
+    if (!data) {
+      return null;
+    }
+    if (!("content" in data)) {
+      return null;
+    }
+    if (!data.content) {
+      return null;
+    }
+    const content = Buffer.from(data.content, "base64").toString("utf-8");
+    return {
+      path: candidatePath,
+      content: content.substring(0, maxFileSize)
+    };
+  } catch (err) {
+    debug(`No test file at ${candidatePath}: ${err.message}`);
+  }
+  return null;
+};
+var collectTestsForFile = async ({
+  octokit,
+  context: context3,
+  filePath,
+  baseRef,
+  maxFiles,
+  maxFileSize,
+  seenPaths,
+  testFiles,
+  testFileSuffixes,
+  testFileRoots
+}) => {
+  if (testFiles.length >= maxFiles)
+    return;
+  const candidatePaths = getCandidateTestPathsForFile(filePath, testFileSuffixes, testFileRoots);
+  for (const candidate of candidatePaths) {
+    if (testFiles.length >= maxFiles)
+      break;
+    if (seenPaths.has(candidate))
+      continue;
+    seenPaths.add(candidate);
+    const testFile = await fetchTestFileContent({
+      octokit,
+      context: context3,
+      candidatePath: candidate,
+      ref: baseRef,
+      maxFileSize
+    });
+    if (testFile) {
+      testFiles.push(testFile);
+      info(`Found related test file: ${candidate}`);
+    }
+  }
+};
+var fetchExistingTestFiles = async ({ octokit, context: context3, rawDiff, testFileSuffixes, testFileRoots }) => {
+  info("Fetching existing test files for changed files from base branch...");
+  const MAX_FILES = 10;
+  const MAX_FILE_SIZE = 4e3;
+  try {
+    const baseRef = await fetchBaseRef(octokit, context3);
+    const changedFiles = getChangedFilesFromDiff(rawDiff);
+    const testFiles = [];
+    const seenPaths = /* @__PURE__ */ new Set();
+    for (const filePath of changedFiles) {
+      if (testFiles.length >= MAX_FILES)
+        break;
+      await collectTestsForFile({
+        octokit,
+        context: context3,
+        filePath,
+        baseRef,
+        maxFiles: MAX_FILES,
+        maxFileSize: MAX_FILE_SIZE,
+        seenPaths,
+        testFiles,
+        testFileSuffixes,
+        testFileRoots
+      });
+    }
+    info(`Collected ${testFiles.length} related test file(s) for context`);
+    return testFiles;
+  } catch (error2) {
+    warning(`Failed to fetch existing test files: ${error2.message}`);
+    return [];
+  }
+};
 async function run() {
   try {
     const token = getInput("github-token");
@@ -23606,6 +23818,15 @@ async function run() {
     const host = getInput("llm-host");
     const modelId = getInput("model-id");
     const excludePattern = getInput("exclude-pattern");
+    const includeExistingTests = getInput("include-existing-tests") === "true";
+    const testFileSuffixes = parseCommaSeparated(
+      getInput("test-file-suffixes"),
+      [".spec", ".test", ".e2e", ".playwright"]
+    );
+    const testFileRoots = parseCommaSeparated(
+      getInput("test-file-roots"),
+      ["src", "app", "packages/app"]
+    );
     const missingInputs = validateInputs({ token, apiKey, host, modelId });
     if (missingInputs.length > 0) {
       setFailed(`Missing required inputs: ${missingInputs.join(", ")}`);
@@ -23625,11 +23846,21 @@ async function run() {
       info("Diff is empty or only contains excluded files. Skipping.");
       return;
     }
+    let existingTests = [];
+    if (includeExistingTests) {
+      existingTests = await fetchExistingTestFiles({
+        octokit,
+        context: context3,
+        rawDiff,
+        testFileSuffixes,
+        testFileRoots
+      });
+    }
     info("TEST MODE: Skipping API call");
     info(`Would send to ${endpoint2} with model_id: ${modelId}`);
     info(`Would send diff (first 500 chars): ${cleanDiff.substring(0, 500)}...`);
     info("TEST MODE: Posting test comment to PR...");
-    await postTestComment(octokit, context3, cleanDiff);
+    await postTestComment(octokit, context3, cleanDiff, existingTests);
     info("Test comment posted successfully!");
     info("Test complete!");
   } catch (error2) {
