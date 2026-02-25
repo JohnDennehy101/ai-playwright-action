@@ -28,6 +28,10 @@ on:
         description: 'Comma-separated source roots for tests'
         required: false
         default: 'src,app,packages/app'
+      include_source_files:
+        description: 'Include source code files for context'
+        required: false
+        default: 'true'
 
 jobs:
   test:
@@ -49,3 +53,4 @@ jobs:
           include-existing-tests: ${{ github.event.inputs.include_existing_tests || 'true' }}
           test-file-suffixes: ${{ github.event.inputs.test_file_suffixes || '.spec,.test,.e2e,.playwright' }}
           test-file-roots: ${{ github.event.inputs.test_file_roots || 'src,app,packages/app' }}
+          include-source-files: ${{ github.event.inputs.include_source_files || 'true' }}

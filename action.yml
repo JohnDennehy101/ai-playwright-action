@@ -28,6 +28,10 @@ inputs:
     description: 'Comma-separated source roots where tests are located (e.g., "src,app,packages/app")'
     required: false
     default: 'src,app,packages/app'
+  include-source-files:
+    description: 'Include changed source files from base branch for context (true/false)'
+    required: false
+    default: 'false'
 runs:
   using: 'node24'
   main: 'dist/index.js'
