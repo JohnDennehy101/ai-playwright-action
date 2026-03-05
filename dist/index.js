@@ -23553,7 +23553,7 @@ var postTestComment = async ({
   existingTests = [],
   sourceFiles = []
 }) => {
-  const diffPreview = cleanDiff.length > 5e3 ? cleanDiff.substring(0, 5e3) + "\n\n... (truncated, see logs for full diff)" : cleanDiff;
+  const diffPreview = cleanDiff.length > 65e3 ? cleanDiff.substring(0, 65e3) + "\n\n... (truncated, see logs for full diff)" : cleanDiff;
   await gh.createComment(buildDiffCommentBody(diffPreview));
   await postFileChunks({
     gh,
