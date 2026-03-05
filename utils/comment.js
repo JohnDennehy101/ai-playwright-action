@@ -68,8 +68,8 @@ export const postTestComment = async ({
     existingTests = [],
     sourceFiles = [],
 }) => {
-    const diffPreview = cleanDiff.length > 5000
-        ? cleanDiff.substring(0, 5000) + '\n\n... (truncated, see logs for full diff)'
+    const diffPreview = cleanDiff.length > 65000
+        ? cleanDiff.substring(0, 65000) + '\n\n... (truncated, see logs for full diff)'
         : cleanDiff;
 
     await gh.createComment(buildDiffCommentBody(diffPreview));
