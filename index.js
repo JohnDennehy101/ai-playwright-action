@@ -4,6 +4,7 @@ import { logDiffInfo, buildNewFileReviewBody, buildResultsReviewBody } from './u
 import { GitHubClient } from './services/GitHubClientService.js';
 import { ContextService } from './services/ContextService.js';
 import { LlmService } from './services/LlmService.js';
+import { McpService } from './services/McpService.js';
 import { TestRunnerService } from './services/TestRunnerService.js';
 import { filterDiff } from './utils/diff.js';
 import { COMMIT_MARKER } from './utils/constants.js';
@@ -27,6 +28,7 @@ const validateInputs = (inputs) => {
 
 async function run() {
     let testRunner = null;
+    let mcpService = null;
 
     try {
         const inputs = {
@@ -51,6 +53,7 @@ async function run() {
             devServerUrl: core.getInput('dev-server-url') || 'http://localhost:5175',
             testOutputPath: core.getInput('test-output-path') || 'e2e/ai-generated.spec.ts',
             startDevServer: core.getInput('start-dev-server') !== 'false',
+            mcpServers: core.getInput('mcp-servers'),
             dryRun: core.getInput('dry-run') === 'true',
         };
 
@@ -112,16 +115,11 @@ async function run() {
             return;
         }
 
-        // Initialise LLM service
-        const llm = new LlmService(inputs.host, inputs.apiKey, inputs.modelId, inputs.devServerUrl);
-
-        // Call LLM to generate test code
-        const testCode = await llm.generateTestFile(cleanDiff, tests, sources);
-
-        if (inputs.runTests) {
-            // Initialise TestRunnerService, which handles
-            // writing the test file, installing dependencies, starting
-            // dev server, running tests and cleans up after
+        // When MCP configuration is passed, the dev server must be running before the LLM call
+        // so that the LLM can interact with the running app
+        // Therefore, calling TestRunnerService early to handle dependencies and server startup.
+        const hasMcp = !!inputs.mcpServers;
+        if (hasMcp || inputs.runTests) {
             testRunner = new TestRunnerService({
                 appDirectory: inputs.appDirectory,
                 installCommand: inputs.installCommand,
@@ -130,20 +128,41 @@ async function run() {
                 testOutputPath: inputs.testOutputPath,
             });
 
-            // Write generated test file to disk
-            testRunner.writeTestFile(testCode);
-
-            // Install dependencies
+            // Install dependencies and browsers needed for both MCP browsing and test execution
             testRunner.installDependencies();
-
-            // Install Playwright browsers
             testRunner.installPlaywrightBrowsers();
 
-            // Start the dev server before running tests against it
-            // Skip if input value is set to false (if playwright config file already starts server)
-            if (inputs.startDevServer) {
+            // Start the dev server so MCP tools can browse the running app
+            if (hasMcp || inputs.startDevServer) {
                 await testRunner.startDevServer();
             }
+        }
+
+        // Initialise MCP service if servers are configured
+        if (inputs.mcpServers) {
+            try {
+                // Parse the config that has been passed for MCP
+                const serversConfig = JSON.parse(inputs.mcpServers);
+
+                // Initialise the mcp service
+                mcpService = new McpService();
+
+                // Connect to MCP servers
+                await mcpService.connect(serversConfig);
+            } catch (err) {
+                core.warning(`Failed to initialise MCP servers: ${err.message}`);
+            }
+        }
+
+        // Initialise LLM service
+        const llm = new LlmService(inputs.host, inputs.apiKey, inputs.modelId, inputs.devServerUrl);
+
+        // Call LLM to generate test code (passes mcpService for tool use if available)
+        const testCode = await llm.generateTestFile(cleanDiff, tests, sources, mcpService);
+
+        if (inputs.runTests) {
+            // Write generated test file to disk
+            testRunner.writeTestFile(testCode);
 
             // Run the tests and extract the results
             const result = testRunner.runTests();
@@ -156,12 +175,16 @@ async function run() {
             core.info(result.output);
             core.info('=== END TEST OUTPUT ===');
 
-            // Prepare the body of PR review comment with test results
+            // For full visiblity, include MCP tool calls
+            const mcpSummary = mcpService ? mcpService.getToolCallSummary() : '';
+
+            // Pass in mcp tool call summary to the review body generation function
             const reviewBody = buildResultsReviewBody({
                 filePath: inputs.testOutputPath,
                 passed: result.passed,
                 exitCode: result.exitCode,
                 output: result.output,
+                mcpSummary,
             });
 
             // If the tests are passing, commit generated test file
@@ -193,7 +216,9 @@ async function run() {
             core.info(`Committed generated test file to ${inputs.testOutputPath}`);
 
             // Call the API to create review with generated test file info
-            await gh.createReview(buildNewFileReviewBody(inputs.testOutputPath));
+            // Include MCP tool call summary for full visiblity if avaiablle
+            const mcpSummary = mcpService ? mcpService.getToolCallSummary() : '';
+            await gh.createReview(buildNewFileReviewBody(inputs.testOutputPath, mcpSummary));
         }
     } catch (error) {
         if (error.response) {
@@ -205,6 +230,11 @@ async function run() {
         // Cleanup after the action is completed or if any error in place
         if (testRunner) {
             testRunner.cleanup();
+        }
+
+        // Disconnect from MCP server if it was connected
+        if (mcpService) {
+            await mcpService.disconnect();
         }
     }
 }
