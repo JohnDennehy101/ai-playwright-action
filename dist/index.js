@@ -39180,12 +39180,15 @@ async function run() {
       installCommand: getInput("install-command") || "npm ci",
       devServerCommand: getInput("dev-server-command") || "npm run dev",
       devServerUrl: getInput("dev-server-url") || "http://localhost:5175",
-      testOutputPath: getInput("test-output-path") || "e2e/ai-generated.spec.ts"
+      testOutputPath: getInput("test-output-path") || "e2e/ai-generated.spec.ts",
+      dryRun: getInput("dry-run") === "true"
     };
-    const missingInputs = validateInputs(inputs);
-    if (missingInputs.length > 0) {
-      setFailed(`Missing required inputs: ${missingInputs.join(", ")}`);
-      return;
+    if (!inputs.dryRun) {
+      const missingInputs = validateInputs(inputs);
+      if (missingInputs.length > 0) {
+        setFailed(`Missing required inputs: ${missingInputs.join(", ")}`);
+        return;
+      }
     }
     const octokit = getOctokit(inputs.token);
     const gh = new GitHubClient(octokit, context2);
@@ -39217,6 +39220,11 @@ async function run() {
       testFileSuffixes: inputs.testFileSuffixes,
       testFileRoots: inputs.testFileRoots
     });
+    if (inputs.dryRun) {
+      info(`Dry run complete. Found ${tests.length} test file(s) and ${sources.length} source file(s) for context.`);
+      info(`Diff length: ${cleanDiff.length} characters`);
+      return;
+    }
     const llm = new LlmService(inputs.host, inputs.apiKey, inputs.modelId, inputs.devServerUrl);
     const testCode = await llm.generateTestFile(cleanDiff, tests, sources);
     if (inputs.runTests) {

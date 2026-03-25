@@ -42,13 +42,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Run Playwright Generator
+      - name: Run Playwright Generator (Dry Run)
         uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          llm-api-key: ${{ secrets.LLM_API_KEY }}
-          llm-host: ${{ github.event.inputs.gpu_ip || secrets.GPU_SERVER_IP }}
-          model-id: ${{ github.event.inputs.model_id || 'Qwen/Qwen2.5-Coder-7B-Instruct' }}
+          dry-run: 'true'
           exclude-pattern: ${{ github.event.inputs.exclude_pattern || '^versions/' }}
           include-existing-tests: ${{ github.event.inputs.include_existing_tests || 'true' }}
           test-file-suffixes: ${{ github.event.inputs.test_file_suffixes || '.spec,.test,.e2e,.playwright' }}

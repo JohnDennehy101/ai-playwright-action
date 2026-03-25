@@ -56,6 +56,10 @@ inputs:
     description: 'Path (relative to app-directory) where generated test file saved'
     required: false
     default: 'e2e/ai-generated.spec.ts'
+  dry-run:
+    description: 'Skip LLM call and test execution, only validate diff parsing and context retrieval (true/false)'
+    required: false
+    default: 'false'
 runs:
   using: 'node24'
   main: 'dist/index.js'
