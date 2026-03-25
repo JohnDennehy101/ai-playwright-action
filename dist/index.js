@@ -39270,6 +39270,12 @@ async function run() {
       testRunner.installPlaywrightBrowsers();
       await testRunner.startDevServer();
       const result = testRunner.runTests();
+      info("=== GENERATED TEST CODE ===");
+      info(testCode);
+      info("=== END GENERATED TEST CODE ===");
+      info("=== TEST OUTPUT ===");
+      info(result.output);
+      info("=== END TEST OUTPUT ===");
       const reviewBody = buildResultsReviewBody({
         filePath: inputs.testOutputPath,
         passed: result.passed,
