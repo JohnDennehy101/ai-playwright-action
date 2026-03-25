@@ -142,6 +142,14 @@ async function run() {
             // Run the tests and extract the results
             const result = testRunner.runTests();
 
+            // Log generated test code and test output for debugging
+            core.info('=== GENERATED TEST CODE ===');
+            core.info(testCode);
+            core.info('=== END GENERATED TEST CODE ===');
+            core.info('=== TEST OUTPUT ===');
+            core.info(result.output);
+            core.info('=== END TEST OUTPUT ===');
+
             // Prepare the body of PR review comment with test results
             const reviewBody = buildResultsReviewBody({
                 filePath: inputs.testOutputPath,
