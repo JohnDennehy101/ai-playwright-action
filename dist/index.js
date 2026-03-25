@@ -38979,10 +38979,9 @@ ${file.content}
     }
     return prompt;
   }
-  // Public function to actually call the LLM API and generate test code
-  async generateTestFile(diff, existingTests = [], sourceFiles = []) {
-    const prompt = this.#buildPrompt(diff, existingTests, sourceFiles);
-    info(`Calling LLM at http://${this.host}:8000/generate-test with model: ${this.modelId}`);
+  // Call the self-hosted GPU server (Digital Ocean droplet)
+  async #callSelfHosted(prompt) {
+    info(`Calling self-hosted LLM at http://${this.host}:8000/generate-test with model: ${this.modelId}`);
     const response = await axios_default.post(
       `http://${this.host}:8000/generate-test`,
       {
@@ -38997,7 +38996,38 @@ ${file.content}
         timeout: 12e4
       }
     );
-    let testCode = response.data.generated_test || response.data.output || response.data.text || "";
+    return response.data.generated_test || response.data.output || response.data.text || "";
+  }
+  // Call the HuggingFace Inference API
+  async #callHuggingFace(prompt) {
+    info(`Calling HuggingFace Inference API with model: ${this.modelId}`);
+    const response = await axios_default.post(
+      `https://router.huggingface.co/novita/v3/openai/chat/completions`,
+      {
+        model: this.modelId,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 1024,
+        temperature: 0
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json"
+        },
+        timeout: 18e4
+      }
+    );
+    return response.data.choices?.[0]?.message?.content || "";
+  }
+  // Public function to actually call the LLM API and generate test code
+  async generateTestFile(diff, existingTests = [], sourceFiles = []) {
+    const prompt = this.#buildPrompt(diff, existingTests, sourceFiles);
+    let testCode;
+    if (this.host === "huggingface") {
+      testCode = await this.#callHuggingFace(prompt);
+    } else {
+      testCode = await this.#callSelfHosted(prompt);
+    }
     testCode = testCode.replace(/^```(?:typescript|ts|javascript|js)?\n/m, "").replace(/\n```$/m, "").trim();
     if (!testCode) {
       throw new Error("LLM returned empty test code");

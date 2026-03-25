@@ -57,15 +57,10 @@ export class LlmService {
         return prompt;
     }
 
-    // Public function to actually call the LLM API and generate test code
-    async generateTestFile(diff, existingTests = [], sourceFiles = []) {
-        // Call private function to build the prompt
-        const prompt = this.#buildPrompt(diff, existingTests, sourceFiles);
+    // Call the self-hosted GPU server (Digital Ocean droplet)
+    async #callSelfHosted(prompt) {
+        core.info(`Calling self-hosted LLM at http://${this.host}:8000/generate-test with model: ${this.modelId}`);
 
-        // Log for debuggin
-        core.info(`Calling LLM at http://${this.host}:8000/generate-test with model: ${this.modelId}`);
-
-        // API request to the Digital Ocean GPU running the API
         const response = await axios.post(
             `http://${this.host}:8000/generate-test`,
             {
@@ -81,8 +76,49 @@ export class LlmService {
             }
         );
 
-        // Extract generated code from the response
-        let testCode = response.data.generated_test || response.data.output || response.data.text || '';
+        return response.data.generated_test || response.data.output || response.data.text || '';
+    }
+
+    // Call the HuggingFace Inference API
+    async #callHuggingFace(prompt) {
+        // Log for debugging
+        core.info(`Calling HuggingFace Inference API with model: ${this.modelId}`);
+
+        // Simple POST request to the API endpoint
+        const response = await axios.post(
+            `https://router.huggingface.co/novita/v3/openai/chat/completions`,
+            {
+                model: this.modelId,
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 1024,
+                temperature: 0,
+            },
+            {
+                headers: {
+                    Authorization: `Bearer ${this.apiKey}`,
+                    'Content-Type': 'application/json',
+                },
+                timeout: 180000,
+            }
+        );
+
+        // Return the generated test code from the response
+        return response.data.choices?.[0]?.message?.content || '';
+    }
+
+    // Public function to actually call the LLM API and generate test code
+    async generateTestFile(diff, existingTests = [], sourceFiles = []) {
+        // Call helper function to build the prompt
+        const prompt = this.#buildPrompt(diff, existingTests, sourceFiles);
+
+        // Route to HuggingFace Inference API or self-hosted GPU based on host value
+        // Needed as Digital Ocean GPU droplet availability is inconsistent
+        let testCode;
+        if (this.host === 'huggingface') {
+            testCode = await this.#callHuggingFace(prompt);
+        } else {
+            testCode = await this.#callSelfHosted(prompt);
+        }
 
         // Clean output to ensure only raw Typescript code is returned
         // Strip any text before start of tests
