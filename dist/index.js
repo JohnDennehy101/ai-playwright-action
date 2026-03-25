@@ -39002,9 +39002,9 @@ ${file.content}
   async #callHuggingFace(prompt) {
     info(`Calling HuggingFace Inference API with model: ${this.modelId}`);
     const response = await axios_default.post(
-      `https://router.huggingface.co/novita/v3/openai/chat/completions`,
+      `https://router.huggingface.co/v1/chat/completions`,
       {
-        model: this.modelId,
+        model: `${this.modelId}:nscale`,
         messages: [{ role: "user", content: prompt }],
         max_tokens: 1024,
         temperature: 0
