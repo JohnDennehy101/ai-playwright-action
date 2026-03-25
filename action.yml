@@ -52,6 +52,10 @@ inputs:
     description: 'URL to use for testing the actual code'
     required: false
     default: 'http://localhost:5175'
+  start-dev-server:
+    description: 'Start the dev server before running tests. Set to false if playwright.config already has a webServer block (true/false)'
+    required: false
+    default: 'true'
   test-output-path:
     description: 'Path (relative to app-directory) where generated test file saved'
     required: false
