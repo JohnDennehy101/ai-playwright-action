@@ -32,6 +32,30 @@ inputs:
     description: 'Include changed source files from base branch for context (true/false)'
     required: false
     default: 'false'
+  run-tests:
+    description: 'Run generated tests with Playwright (true/false)'
+    required: false
+    default: 'false'
+  app-directory:
+    description: 'Path to the app directory (including package.json)'
+    required: false
+    default: '.'
+  install-command:
+    description: 'Command for installing app dependencies'
+    required: false
+    default: 'npm ci'
+  dev-server-command:
+    description: 'Command for starting the dev server'
+    required: false
+    default: 'npm run dev'
+  dev-server-url:
+    description: 'URL to use for testing the actual code'
+    required: false
+    default: 'http://localhost:5175'
+  test-output-path:
+    description: 'Path (relative to app-directory) where generated test file saved'
+    required: false
+    default: 'e2e/ai-generated.spec.ts'
 runs:
   using: 'node24'
   main: 'dist/index.js'
