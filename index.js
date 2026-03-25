@@ -50,6 +50,7 @@ async function run() {
             devServerCommand: core.getInput('dev-server-command') || 'npm run dev',
             devServerUrl: core.getInput('dev-server-url') || 'http://localhost:5175',
             testOutputPath: core.getInput('test-output-path') || 'e2e/ai-generated.spec.ts',
+            startDevServer: core.getInput('start-dev-server') !== 'false',
             dryRun: core.getInput('dry-run') === 'true',
         };
 
@@ -104,7 +105,9 @@ async function run() {
 
         // In dry-run mode, log what was gathered and exit
         if (inputs.dryRun) {
-            core.info(`Dry run complete. Found ${tests.length} test file(s) and ${sources.length} source file(s) for context.`);
+            core.info(
+                `Dry run complete. Found ${tests.length} test file(s) and ${sources.length} source file(s) for context.`
+            );
             core.info(`Diff length: ${cleanDiff.length} characters`);
             return;
         }
@@ -137,7 +140,10 @@ async function run() {
             testRunner.installPlaywrightBrowsers();
 
             // Start the dev server before running tests against it
-            await testRunner.startDevServer();
+            // Skip if input value is set to false (if playwright config file already starts server)
+            if (inputs.startDevServer) {
+                await testRunner.startDevServer();
+            }
 
             // Run the tests and extract the results
             const result = testRunner.runTests();

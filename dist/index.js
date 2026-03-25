@@ -39211,6 +39211,7 @@ async function run() {
       devServerCommand: getInput("dev-server-command") || "npm run dev",
       devServerUrl: getInput("dev-server-url") || "http://localhost:5175",
       testOutputPath: getInput("test-output-path") || "e2e/ai-generated.spec.ts",
+      startDevServer: getInput("start-dev-server") !== "false",
       dryRun: getInput("dry-run") === "true"
     };
     if (!inputs.dryRun) {
@@ -39251,7 +39252,9 @@ async function run() {
       testFileRoots: inputs.testFileRoots
     });
     if (inputs.dryRun) {
-      info(`Dry run complete. Found ${tests.length} test file(s) and ${sources.length} source file(s) for context.`);
+      info(
+        `Dry run complete. Found ${tests.length} test file(s) and ${sources.length} source file(s) for context.`
+      );
       info(`Diff length: ${cleanDiff.length} characters`);
       return;
     }
@@ -39268,7 +39271,9 @@ async function run() {
       testRunner.writeTestFile(testCode);
       testRunner.installDependencies();
       testRunner.installPlaywrightBrowsers();
-      await testRunner.startDevServer();
+      if (inputs.startDevServer) {
+        await testRunner.startDevServer();
+      }
       const result = testRunner.runTests();
       info("=== GENERATED TEST CODE ===");
       info(testCode);
