@@ -51825,49 +51825,25 @@ ${file2.content}
     );
     return response.data.generated_test || response.data.output || response.data.text || "";
   }
-  // Call the HuggingFace Inference API (with optional MCP tool use)
-  async #callHuggingFace(prompt, mcpService) {
+  // Call the HuggingFace Inference API
+  async #callHuggingFace(prompt) {
     info(`Calling HuggingFace Inference API with model: ${this.modelId}`);
-    const messages = [{ role: "user", content: prompt }];
-    const requestBody = {
-      model: `${this.modelId}:nscale`,
-      messages,
-      max_tokens: 1024,
-      temperature: 0
-    };
-    if (mcpService?.hasTools()) {
-      requestBody.tools = mcpService.getToolsForOpenAI();
-      info(`Including ${requestBody.tools.length} MCP tool(s) in HuggingFace request`);
-    }
-    const headers = {
-      Authorization: `Bearer ${this.apiKey}`,
-      "Content-Type": "application/json"
-    };
-    let response = await axios_default.post("https://router.huggingface.co/v1/chat/completions", requestBody, {
-      headers,
-      timeout: 18e4
-    });
-    let rounds = 0;
-    while (response.data.choices?.[0]?.message?.tool_calls && rounds < MAX_TOOL_ROUNDS) {
-      rounds++;
-      const assistantMsg = response.data.choices[0].message;
-      messages.push(assistantMsg);
-      for (const toolCall of assistantMsg.tool_calls) {
-        info(`MCP tool call: ${toolCall.function.name}`);
-        const args = JSON.parse(toolCall.function.arguments || "{}");
-        const result = await mcpService.callTool(toolCall.function.name, args);
-        messages.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content: result
-        });
+    const response = await axios_default.post(
+      "https://router.huggingface.co/v1/chat/completions",
+      {
+        model: `${this.modelId}:nscale`,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 1024,
+        temperature: 0
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json"
+        },
+        timeout: 18e4
       }
-      response = await axios_default.post(
-        "https://router.huggingface.co/v1/chat/completions",
-        { ...requestBody, messages },
-        { headers, timeout: 18e4 }
-      );
-    }
+    );
     return response.data.choices?.[0]?.message?.content || "";
   }
   // Call Claude with optional MCP tool use
@@ -51911,15 +51887,20 @@ ${file2.content}
     return textBlocks.map((b) => b.text).join("\n");
   }
   // Public function to actually call the LLM API and generate test code
-  // Note that mcpService is optional — pass it to enable MCP tool use with Claude or HuggingFace
-  // In testing, mcp was shown to significantly improve quality and success of generated tests
+  // Note that mcpService is optional — pass it to enable MCP tool use with Claude
+  // MCP tools are only supported with Claude — HuggingFace and self-hosted models
+  // do not reliably support tool use, so MCP is skipped for those providers
   async generateTestFile(diff, existingTests = [], sourceFiles = [], mcpService = null) {
-    const prompt = mcpService?.hasTools() ? this.#buildMcpPrompt(diff, existingTests, sourceFiles) : this.#buildPrompt(diff, existingTests, sourceFiles);
+    const useMcp = this.host === "claude" && mcpService?.hasTools();
+    const prompt = useMcp ? this.#buildMcpPrompt(diff, existingTests, sourceFiles) : this.#buildPrompt(diff, existingTests, sourceFiles);
+    if (mcpService?.hasTools() && this.host !== "claude") {
+      warning("MCP tools are configured but only supported with Claude (llm-host: claude). Skipping tools.");
+    }
     let testCode;
     if (this.host === "claude") {
       testCode = await this.#callClaude(prompt, mcpService);
     } else if (this.host === "huggingface") {
-      testCode = await this.#callHuggingFace(prompt, mcpService);
+      testCode = await this.#callHuggingFace(prompt);
     } else {
       testCode = await this.#callSelfHosted(prompt);
     }
