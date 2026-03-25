@@ -1,37 +1,37 @@
 name: Test Action
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
     inputs:
       gpu_ip:
-        description: 'Current GPU Server IP'
+        description: "Current GPU Server IP"
         required: true
-        default: '0.0.0.0'
+        default: "0.0.0.0"
       model_id:
-        description: 'Model ID to use for generation'
+        description: "Model ID to use for generation"
         required: false
-        default: 'Qwen/Qwen2.5-Coder-7B-Instruct'
+        default: "Qwen/Qwen2.5-Coder-7B-Instruct"
       exclude_pattern:
-        description: 'File patterns to exclude from diff analysis'
+        description: "File patterns to exclude from diff analysis"
         required: false
-        default: '^dist/'
+        default: "^dist/"
       include_existing_tests:
-        description: 'Include existing test files from base branch (true/false)'
+        description: "Include existing test files from base branch (true/false)"
         required: false
-        default: 'true'
+        default: "true"
       test_file_suffixes:
-        description: 'Comma-separated test suffixes'
+        description: "Comma-separated test suffixes"
         required: false
-        default: '.spec,.test,.e2e,.playwright'
+        default: ".spec,.test,.e2e,.playwright"
       test_file_roots:
-        description: 'Comma-separated source roots for tests'
+        description: "Comma-separated source roots for tests"
         required: false
-        default: 'src,app,packages/app'
+        default: "src,app,packages/app"
       include_source_files:
-        description: 'Include source code files for context'
+        description: "Include source code files for context"
         required: false
-        default: 'true'
+        default: "true"
 
 jobs:
   test:
@@ -46,7 +46,7 @@ jobs:
         uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          dry-run: 'true'
+          dry-run: "true"
           exclude-pattern: ${{ github.event.inputs.exclude_pattern || '^versions/' }}
           include-existing-tests: ${{ github.event.inputs.include_existing_tests || 'true' }}
           test-file-suffixes: ${{ github.event.inputs.test_file_suffixes || '.spec,.test,.e2e,.playwright' }}
