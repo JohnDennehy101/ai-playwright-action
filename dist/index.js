@@ -55857,7 +55857,7 @@ var GitHubClient = class {
 var COMMIT_MARKER = "AI-generated Playwright tests";
 var TARGET_SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
 var EXCLUDED_EXTENSIONS = [".json", ".lock", ".md", ".txt", ".png", ".jpg", ".pdf", ".yml", ".yaml"];
-var MAX_TOOL_ROUNDS = 10;
+var MAX_TOOL_ROUNDS = 5;
 var MAX_RETRIES = 3;
 var INITIAL_RETRY_DELAY_MS = 5e3;
 var RETRYABLE_STATUS_CODES = [429, 529];
@@ -56091,6 +56091,40 @@ var ContextService = class {
     return null;
   }
 };
+
+// utils/extractGeneratedTestCode.js
+function extractTypeScript(raw) {
+  const blockPattern = /```(\w*)\s*\n([\s\S]*?)```/g;
+  const blocks2 = [];
+  let match2;
+  while ((match2 = blockPattern.exec(raw)) !== null) {
+    blocks2.push({ language: match2[1], content: match2[2] });
+  }
+  const hasTest = (code) => /\btest\s*\(/.test(code);
+  for (const block of blocks2) {
+    if (["typescript", "ts"].includes(block.language) && hasTest(block.content)) {
+      return block.content.trim();
+    }
+  }
+  for (const block of blocks2) {
+    if (["typescript", "ts"].includes(block.language)) {
+      return block.content.trim();
+    }
+  }
+  for (const block of blocks2) {
+    if (hasTest(block.content)) {
+      return block.content.trim();
+    }
+  }
+  const fallbackPatterns = [/import\s+\{[^}]*test[^}]*\}.*/s, /test\.describe\s*\(.*/s, /test\s*\(.*/s];
+  for (const pattern of fallbackPatterns) {
+    const fallbackMatch = pattern.exec(raw);
+    if (fallbackMatch) {
+      return fallbackMatch[0].trim();
+    }
+  }
+  return "";
+}
 
 // node_modules/@anthropic-ai/sdk/internal/tslib.mjs
 function __classPrivateFieldSet(receiver, state3, value, kind, f) {
@@ -60941,40 +60975,6 @@ Anthropic.Messages = Messages2;
 Anthropic.Models = Models2;
 Anthropic.Beta = Beta;
 
-// utils/extractGeneratedTestCode.js
-function extractTypeScript(raw) {
-  const blockPattern = /```(\w*)\s*\n([\s\S]*?)```/g;
-  const blocks2 = [];
-  let match2;
-  while ((match2 = blockPattern.exec(raw)) !== null) {
-    blocks2.push({ language: match2[1], content: match2[2] });
-  }
-  const hasTest = (code) => /\btest\s*\(/.test(code);
-  for (const block of blocks2) {
-    if (["typescript", "ts"].includes(block.language) && hasTest(block.content)) {
-      return block.content.trim();
-    }
-  }
-  for (const block of blocks2) {
-    if (["typescript", "ts"].includes(block.language)) {
-      return block.content.trim();
-    }
-  }
-  for (const block of blocks2) {
-    if (hasTest(block.content)) {
-      return block.content.trim();
-    }
-  }
-  const fallbackPatterns = [/import\s+\{[^}]*test[^}]*\}.*/s, /test\.describe\s*\(.*/s, /test\s*\(.*/s];
-  for (const pattern of fallbackPatterns) {
-    const fallbackMatch = pattern.exec(raw);
-    if (fallbackMatch) {
-      return fallbackMatch[0].trim();
-    }
-  }
-  return raw;
-}
-
 // services/RequestService.js
 init_axios2();
 var RequestService = class _RequestService {
@@ -61009,6 +61009,149 @@ var RequestService = class _RequestService {
       const response = await axios_default.post(url4, body2, { headers, timeout });
       return response;
     });
+  }
+};
+
+// providers/ClaudeProvider.js
+var ClaudeProvider = class {
+  // Claude provider manages all calls to the Anthropic API
+  // including MCP tool use loops
+  constructor(apiKey, modelId) {
+    this.client = new Anthropic({ apiKey });
+    this.modelId = modelId;
+  }
+  // Call Claude API with optional MCP tool use
+  async call(prompt, mcpService) {
+    info(`Calling Claude API with model: ${this.modelId}`);
+    const requestParameters = {
+      model: this.modelId,
+      max_tokens: 16384,
+      messages: [{ role: "user", content: prompt }]
+    };
+    if (mcpService?.hasTools()) {
+      requestParameters.tools = mcpService.getToolsForClaude();
+      info(`Including ${requestParameters.tools.length} MCP tool(s) in Claude request`);
+    }
+    let response = await RequestService.withRetry(() => this.client.messages.create(requestParameters));
+    const messages = [...requestParameters.messages];
+    let rounds = 0;
+    while (response.stop_reason === "tool_use" && rounds < MAX_TOOL_ROUNDS) {
+      rounds++;
+      messages.push({ role: "assistant", content: response.content });
+      const toolResults = await this.#processToolCalls(response.content, mcpService);
+      messages.push({ role: "user", content: toolResults });
+      response = await RequestService.withRetry(
+        () => this.client.messages.create({ ...requestParameters, messages })
+      );
+    }
+    if (response.stop_reason === "tool_use" && rounds >= MAX_TOOL_ROUNDS) {
+      response = await this.#exitToolCallLoop(response, messages, requestParameters, mcpService);
+    }
+    if (response.stop_reason === "max_tokens") {
+      warning("Claude hit max_tokens limit \u2014 response may be incomplete.");
+    }
+    const textBlocks = response.content.filter((b) => b.type === "text");
+    return textBlocks.map((b) => b.text).join("\n");
+  }
+  // Private function that processes tool use blocks from a Claude response and executes each via MCP
+  async #processToolCalls(content, mcpService) {
+    const toolResults = [];
+    for (const block of content) {
+      if (block.type === "tool_use") {
+        info(`MCP tool call: ${block.name}`);
+        const result = await mcpService.callTool(block.name, block.input);
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: block.id,
+          content: result
+        });
+      }
+    }
+    return toolResults;
+  }
+  // When Claude hits the configured tool call limit, send a final message
+  // telling it to stop exploring and output the code
+  async #exitToolCallLoop(response, messages, requestParameters, mcpService) {
+    warning(`Hit tool call limit (${MAX_TOOL_ROUNDS} rounds) \u2014 asking Claude to output code now`);
+    messages.push({ role: "assistant", content: response.content });
+    const finalToolResults = await this.#processToolCalls(response.content, mcpService);
+    messages.push({
+      role: "user",
+      content: [
+        ...finalToolResults,
+        {
+          type: "text",
+          text: "You have done enough exploration. Now output ONLY the final Playwright test code as TypeScript in a ```typescript code block. No more tool calls."
+        }
+      ]
+    });
+    return RequestService.withRetry(
+      () => this.client.messages.create({
+        ...requestParameters,
+        tools: void 0,
+        messages
+      })
+    );
+  }
+};
+
+// providers/HuggingFaceProvider.js
+var HuggingFaceProvider = class {
+  // HuggingFace provider manages API calls to the HuggingFace Inference API
+  // via the router endpoint
+  constructor(apiKey, modelId) {
+    this.apiKey = apiKey;
+    this.modelId = modelId;
+  }
+  // Calls the HuggingFace Inference API
+  async call(prompt) {
+    info(`Calling HuggingFace Inference API with model: ${this.modelId}`);
+    const response = await RequestService.post(
+      "https://router.huggingface.co/v1/chat/completions",
+      {
+        model: `${this.modelId}:nscale`,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 1024,
+        temperature: 0
+      },
+      { apiKey: this.apiKey, timeout: 18e4 }
+    );
+    return response.data.choices?.[0]?.message?.content || "";
+  }
+};
+
+// providers/SelfHostedProvider.js
+var SelfHostedProvider = class {
+  // Self hosted provider handles calls to any custom GPU server
+  // running an inference service that can accept API requests
+  constructor(host, apiKey, modelId) {
+    this.host = host;
+    this.apiKey = apiKey;
+    this.modelId = modelId;
+  }
+  // Call the GPU server
+  async call(prompt) {
+    info(`Calling self-hosted LLM at http://${this.host}:8000/generate-test with model: ${this.modelId}`);
+    const response = await RequestService.post(
+      `http://${this.host}:8000/generate-test`,
+      { model_id: this.modelId, prompt },
+      { apiKey: this.apiKey, timeout: 12e4 }
+    );
+    return response.data.generated_test || response.data.output || response.data.text || "";
+  }
+};
+
+// providers/ProviderFactory.js
+var ProviderFactory = class {
+  static create(host, apiKey, modelId) {
+    switch (host) {
+      case "claude":
+        return new ClaudeProvider(apiKey, modelId);
+      case "huggingface":
+        return new HuggingFaceProvider(apiKey, modelId);
+      default:
+        return new SelfHostedProvider(host, apiKey, modelId);
+    }
   }
 };
 
@@ -61106,76 +61249,6 @@ ${file2.content}
     }
     return prompt;
   }
-  // Call the self-hosted GPU server (Digital Ocean droplet)
-  async #callSelfHosted(prompt) {
-    info(`Calling self-hosted LLM at http://${this.host}:8000/generate-test with model: ${this.modelId}`);
-    const response = await RequestService.post(
-      `http://${this.host}:8000/generate-test`,
-      { model_id: this.modelId, prompt },
-      { apiKey: this.apiKey, timeout: 12e4 }
-    );
-    return response.data.generated_test || response.data.output || response.data.text || "";
-  }
-  // Call the HuggingFace Inference API
-  async #callHuggingFace(prompt) {
-    info(`Calling HuggingFace Inference API with model: ${this.modelId}`);
-    const response = await RequestService.post(
-      "https://router.huggingface.co/v1/chat/completions",
-      {
-        model: `${this.modelId}:nscale`,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 1024,
-        temperature: 0
-      },
-      { apiKey: this.apiKey, timeout: 18e4 }
-    );
-    return response.data.choices?.[0]?.message?.content || "";
-  }
-  // Call Claude with optional MCP tool use
-  async #callClaude(prompt, mcpService) {
-    info(`Calling Claude API with model: ${this.modelId}`);
-    const client = new Anthropic({ apiKey: this.apiKey });
-    const requestParameters = {
-      model: this.modelId,
-      max_tokens: 16384,
-      messages: [{ role: "user", content: prompt }]
-    };
-    if (mcpService?.hasTools()) {
-      requestParameters.tools = mcpService.getToolsForClaude();
-      info(`Including ${requestParameters.tools.length} MCP tool(s) in Claude request`);
-    }
-    let response = await RequestService.withRetry(() => client.messages.create(requestParameters));
-    const messages = [...requestParameters.messages];
-    let rounds = 0;
-    while (response.stop_reason === "tool_use" && rounds < MAX_TOOL_ROUNDS) {
-      rounds++;
-      messages.push({ role: "assistant", content: response.content });
-      const toolResults = [];
-      for (const block of response.content) {
-        if (block.type === "tool_use") {
-          info(`MCP tool call: ${block.name}`);
-          const result = await mcpService.callTool(block.name, block.input);
-          toolResults.push({
-            type: "tool_result",
-            tool_use_id: block.id,
-            content: result
-          });
-        }
-      }
-      messages.push({ role: "user", content: toolResults });
-      response = await RequestService.withRetry(
-        () => client.messages.create({
-          ...requestParameters,
-          messages
-        })
-      );
-    }
-    if (response.stop_reason === "max_tokens") {
-      warning("Claude hit max_tokens limit \u2014 response may be incomplete.");
-    }
-    const textBlocks = response.content.filter((b) => b.type === "text");
-    return textBlocks.map((b) => b.text).join("\n");
-  }
   // Public function to actually call the LLM API and generate test code
   // Note that mcpService is optional — pass it to enable MCP tool use with Claude
   // MCP tools are only supported with Claude — HuggingFace
@@ -61186,18 +61259,19 @@ ${file2.content}
     if (mcpService?.hasTools() && this.host !== "claude") {
       warning("MCP tools are configured but only supported with Claude (llm-host: claude). Skipping tools.");
     }
-    let testCode;
-    if (this.host === "claude") {
-      testCode = await this.#callClaude(prompt, mcpService);
-    } else if (this.host === "huggingface") {
-      testCode = await this.#callHuggingFace(prompt);
-    } else {
-      testCode = await this.#callSelfHosted(prompt);
-    }
+    const provider = ProviderFactory.create(this.host, this.apiKey, this.modelId);
+    let testCode = await provider.call(prompt, mcpService);
     const rawOutput = testCode;
     testCode = extractTypeScript(testCode);
     if (!testCode) {
-      throw new Error("LLM returned empty test code");
+      throw new Error(
+        "LLM returned empty test code. The model may have used all tokens on tool calls without generating code."
+      );
+    }
+    if (!/\btest\s*\(/.test(testCode) && !/\btest\.describe\s*\(/.test(testCode)) {
+      warning(
+        "Generated code does not contain test() or test.describe() \u2014 may not be valid Playwright test code"
+      );
     }
     info(`Generated test file (${testCode.length} chars from ${rawOutput.length} chars raw)`);
     return { testCode, rawOutput };
