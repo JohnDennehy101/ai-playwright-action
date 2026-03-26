@@ -28713,7 +28713,7 @@ var require_mime_types = __commonJS({
   "node_modules/mime-types/index.js"(exports2) {
     "use strict";
     var db = require_mime_db();
-    var extname3 = require("path").extname;
+    var extname2 = require("path").extname;
     var EXTRACT_TYPE_REGEXP = /^\s*([^;\s]*)(?:;|\s|$)/;
     var TEXT_TYPE_REGEXP = /^text\//i;
     exports2.charset = charset;
@@ -28768,7 +28768,7 @@ var require_mime_types = __commonJS({
       if (!path14 || typeof path14 !== "string") {
         return false;
       }
-      var extension2 = extname3("x." + path14).toLowerCase().substr(1);
+      var extension2 = extname2("x." + path14).toLowerCase().substr(1);
       if (!extension2) {
         return false;
       }
@@ -109061,7 +109061,7 @@ var TestRunnerService = class {
     });
     info("Playwright browsers installed");
     try {
-      await saveCache2([cacheDir], cacheKey);
+      await saveCache2([cacheDirectory], cacheKey);
       info("Playwright browsers saved to cache");
     } catch (err) {
       info(`Cache save skipped: ${err.message}`);
@@ -109214,9 +109214,11 @@ async function run() {
       return;
     }
     const testOutputDirectory = path13.dirname(inputs.testOutputPath);
-    const testOutputExtension = path13.extname(inputs.testOutputPath);
-    const testOutputBase = path13.basename(inputs.testOutputPath, testOutputExtension);
-    const uniqueTestFileName = `${testOutputBase}-pr-${gh.prNumber}${testOutputExtension}`;
+    const fullFileName = path13.basename(inputs.testOutputPath);
+    const firstDotIndex = fullFileName.indexOf(".");
+    const baseName = firstDotIndex > 0 ? fullFileName.slice(0, firstDotIndex) : fullFileName;
+    const fullExtension = firstDotIndex > 0 ? fullFileName.slice(firstDotIndex) : "";
+    const uniqueTestFileName = `${baseName}-pr-${gh.prNumber}${fullExtension}`;
     const testOutputPath = path13.join(testOutputDirectory, uniqueTestFileName);
     const repoRelativeTestPath = inputs.appDirectory === "." ? testOutputPath : path13.join(inputs.appDirectory, testOutputPath);
     const latestCommitMessage = await gh.getLatestCommitMessage();

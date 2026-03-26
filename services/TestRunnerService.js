@@ -96,7 +96,7 @@ export class TestRunnerService {
         // Save to cache for future runs - to save time and avoid
         // installing on every run.
         try {
-            await cache.saveCache([cacheDir], cacheKey);
+            await cache.saveCache([cacheDirectory], cacheKey);
             core.info('Playwright browsers saved to cache');
         } catch (err) {
             // Cache save can fail if key already exists — not a blocker,

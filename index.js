@@ -76,18 +76,17 @@ async function run() {
         }
 
         // Build unique test file name using PR number (e.g. e2e/ai-generated-pr-42.spec.ts)
-
-        // Get path for generated test file
+        // Double extensions like .spec.ts need to be covered correctly
         const testOutputDirectory = path.dirname(inputs.testOutputPath);
+        const fullFileName = path.basename(inputs.testOutputPath);
 
-        // Get extension for test output file
-        const testOutputExtension = path.extname(inputs.testOutputPath);
+        // Split on first full stop to get base name and full extension (e.g. "ai-generated", ".spec.ts")
+        const firstDotIndex = fullFileName.indexOf('.');
+        const baseName = firstDotIndex > 0 ? fullFileName.slice(0, firstDotIndex) : fullFileName;
+        const fullExtension = firstDotIndex > 0 ? fullFileName.slice(firstDotIndex) : '';
 
-        // Get base name for test output file (without extension)
-        const testOutputBase = path.basename(inputs.testOutputPath, testOutputExtension);
-
-        // Generate unique test file name using base file name and PR number
-        const uniqueTestFileName = `${testOutputBase}-pr-${gh.prNumber}${testOutputExtension}`;
+        // Create unique file name with PR number
+        const uniqueTestFileName = `${baseName}-pr-${gh.prNumber}${fullExtension}`;
 
         // Combine directory and unique file name to get full path for generated test file
         const testOutputPath = path.join(testOutputDirectory, uniqueTestFileName);
