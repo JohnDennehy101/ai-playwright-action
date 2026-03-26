@@ -158,7 +158,15 @@ async function run() {
         const llm = new LlmService(inputs.host, inputs.apiKey, inputs.modelId, inputs.devServerUrl);
 
         // Call LLM to generate test code (passes mcpService for tool use if available)
-        const testCode = await llm.generateTestFile(cleanDiff, tests, sources, mcpService);
+        const { testCode, rawOutput } = await llm.generateTestFile(cleanDiff, tests, sources, mcpService);
+
+        // Log raw LLM output and extracted code for debugging
+        core.info('=== RAW LLM OUTPUT ===');
+        core.info(rawOutput);
+        core.info('=== END RAW LLM OUTPUT ===');
+        core.info('=== EXTRACTED TEST CODE ===');
+        core.info(testCode);
+        core.info('=== END EXTRACTED TEST CODE ===');
 
         if (inputs.runTests) {
             // Write generated test file to disk
@@ -167,24 +175,22 @@ async function run() {
             // Run the tests and extract the results
             const result = testRunner.runTests();
 
-            // Log generated test code and test output for debugging
-            core.info('=== GENERATED TEST CODE ===');
-            core.info(testCode);
-            core.info('=== END GENERATED TEST CODE ===');
+            // Log test output for debugging
             core.info('=== TEST OUTPUT ===');
             core.info(result.output);
             core.info('=== END TEST OUTPUT ===');
 
-            // For full visiblity, include MCP tool calls
+            // For full visibility, include MCP tool calls
             const mcpSummary = mcpService ? mcpService.getToolCallSummary() : '';
 
-            // Pass in mcp tool call summary to the review body generation function
+            // Pass in mcp tool call summary and raw output to the review body
             const reviewBody = buildResultsReviewBody({
                 filePath: inputs.testOutputPath,
                 passed: result.passed,
                 exitCode: result.exitCode,
                 output: result.output,
                 mcpSummary,
+                rawOutput,
             });
 
             // If the tests are passing, commit generated test file
@@ -218,7 +224,7 @@ async function run() {
             // Call the API to create review with generated test file info
             // Include MCP tool call summary for full visiblity if avaiablle
             const mcpSummary = mcpService ? mcpService.getToolCallSummary() : '';
-            await gh.createReview(buildNewFileReviewBody(inputs.testOutputPath, mcpSummary));
+            await gh.createReview(buildNewFileReviewBody(inputs.testOutputPath, mcpSummary, rawOutput));
         }
     } catch (error) {
         if (error.response) {
