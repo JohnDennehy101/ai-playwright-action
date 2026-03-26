@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as core from '@actions/core';
 import * as github from '@actions/github';
-import { logDiffInfo, buildNewFileReviewBody, buildResultsReviewBody } from './utils/comment.js';
+import { buildNewFileReviewBody, buildResultsReviewBody } from './utils/comment.js';
 import { GitHubClient } from './services/GitHubClientService.js';
 import { ContextService } from './services/ContextService.js';
 import { LlmService } from './services/LlmService.js';
@@ -69,6 +69,7 @@ async function run() {
         const octokit = github.getOctokit(inputs.token);
         const gh = new GitHubClient(octokit, github.context);
         const contextService = new ContextService(gh);
+        const repoUrl = `https://github.com/${gh.repoOwner}/${gh.repoName}`;
 
         if (!gh.prNumber) {
             core.setFailed('No Pull Request found. This action only runs on PRs.');
@@ -102,18 +103,18 @@ async function run() {
             return;
         }
 
-        // Also skip if the generated test file already exists on the current branch
+        // If the generated test file already exists, delete it so we regenerate
+        // based on the latest diff (the commit marker check above prevents loops)
         const testFileExists = await gh.fileExistsOnBranch(repoRelativeTestPath);
         if (testFileExists) {
-            core.info(`Generated test file ${repoRelativeTestPath} already exists on branch. Skipping.`);
-            return;
+            core.info(
+                `Deleting existing generated test file ${repoRelativeTestPath} — will regenerate from latest diff.`
+            );
+            await gh.deleteFile(repoRelativeTestPath, `test: remove stale AI-generated tests for regeneration`);
         }
 
         const rawDiff = await gh.getPullRequestDiff();
         const cleanDiff = filterDiff(rawDiff, inputs.excludePattern);
-
-        // Remains for now - TODO remove when validate that it is working
-        logDiffInfo(cleanDiff, rawDiff);
 
         if (!cleanDiff || cleanDiff.length < 10) {
             core.info('Diff is empty or only contains excluded files. Skipping.');
@@ -151,7 +152,7 @@ async function run() {
 
             // Install dependencies and browsers needed for both MCP browsing and test execution
             testRunner.installDependencies();
-            await testRunner.installPlaywrightBrowsers();
+            testRunner.installPlaywrightBrowsers();
 
             // Start the dev server so MCP tools can browse the running app
             if (hasMcp || inputs.startDevServer) {
@@ -213,6 +214,8 @@ async function run() {
                 mcpSummary,
                 rawOutput,
                 testCode,
+                repoUrl,
+                prNumber: gh.prNumber,
             });
 
             if (result.passed) {
@@ -225,9 +228,8 @@ async function run() {
                 );
                 core.info(`Tests passed — committed generated test file to ${repoRelativeTestPath}`);
 
-                // Note posting as REQUEST_CHANGES type so PR is blocked until the reviewer
-                // dismisses (keeps the test file) or deletes the file (removes the file)
-                await gh.createReview(reviewBody, 'REQUEST_CHANGES');
+                // Post as review
+                await gh.createReview(reviewBody);
             } else {
                 // Tests failed — don't commit, just post results as a comment
                 // For full visibility
@@ -246,11 +248,9 @@ async function run() {
             // Get summary of MCP tool calls for full visibility of work completed by the model
             const mcpSummary = mcpService ? mcpService.getToolCallSummary() : '';
 
-            // Note posting as REQUEST_CHANGES type so PR is blocked until the reviewer
-            // dismisses (keeps the test file) or deletes the file (removes the file)
+            // Post as a comment review — non-blocking, user reviews in Files Changed tab
             await gh.createReview(
-                buildNewFileReviewBody(repoRelativeTestPath, mcpSummary, rawOutput),
-                'REQUEST_CHANGES'
+                buildNewFileReviewBody(repoRelativeTestPath, mcpSummary, rawOutput, repoUrl, gh.prNumber)
             );
         }
     } catch (error) {
