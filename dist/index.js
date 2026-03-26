@@ -51927,7 +51927,7 @@ ${file2.content}
     const client = new Anthropic({ apiKey: this.apiKey });
     const requestParameters = {
       model: this.modelId,
-      max_tokens: 4096,
+      max_tokens: 16384,
       messages: [{ role: "user", content: prompt }]
     };
     if (mcpService?.hasTools()) {
@@ -51959,6 +51959,9 @@ ${file2.content}
           messages
         })
       );
+    }
+    if (response.stop_reason === "max_tokens") {
+      warning("Claude hit max_tokens limit \u2014 response may be incomplete.");
     }
     const textBlocks = response.content.filter((b) => b.type === "text");
     return textBlocks.map((b) => b.text).join("\n");

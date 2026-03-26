@@ -157,9 +157,10 @@ export class LlmService {
 
         // Build the request parameters
         // Note longer max tokens limit here
+        // As it seemed to be running out
         const requestParameters = {
             model: this.modelId,
-            max_tokens: 4096,
+            max_tokens: 16384,
             messages: [{ role: 'user', content: prompt }],
         };
 
@@ -212,6 +213,11 @@ export class LlmService {
                     messages,
                 })
             );
+        }
+
+        // Warn if Claude hit the token limit (may have truncated the response)
+        if (response.stop_reason === 'max_tokens') {
+            core.warning('Claude hit max_tokens limit — response may be incomplete.');
         }
 
         // Extract text from the final response
