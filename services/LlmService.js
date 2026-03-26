@@ -1,17 +1,14 @@
 import * as core from '@actions/core';
 import { extractTypeScript } from '../utils/extractGeneratedTestCode.js';
-import { ProviderFactory } from '../providers/ProviderFactory.js';
 
 export class LlmService {
-    // The LlmService interacts with the GPU running via API to generate Playwright test code based on the provided diff and context.
-    constructor(host, apiKey, modelId, baseUrl) {
-        // host: address of the LLM API server
-        // apiKey: API key for authenticating with the LLM service
-        // modelId: identifier of the specific LLM model to use for generation (Hugging Face)
+    // The LlmService handles prompt building, code extraction, also tries to heal any failing tests.
+    constructor(provider, { host, baseUrl }) {
+        // provider: the LLM provider instance (ClaudeProvider, HuggingFaceProvider, SelfHostedProvider) injected from index.js
+        // host: provider identifier used to determine MCP support
         // baseUrl: base URL of the application under test, used in generated test code
+        this.provider = provider;
         this.host = host;
-        this.apiKey = apiKey;
-        this.modelId = modelId;
         this.baseUrl = baseUrl;
     }
 
@@ -123,9 +120,8 @@ export class LlmService {
             core.warning('MCP tools are configured but only supported with Claude (llm-host: claude). Skipping tools.');
         }
 
-        // Route to the relevant provider based on host value
-        const provider = ProviderFactory.create(this.host, this.apiKey, this.modelId);
-        let testCode = await provider.call(prompt, mcpService);
+        // Call the injected model provider to generate test code
+        let testCode = await this.provider.call(prompt, mcpService);
 
         // Store the raw output for visibility before extracting code
         const rawOutput = testCode;
@@ -153,5 +149,63 @@ export class LlmService {
 
         // Return both the extracted test code and the raw LLM output
         return { testCode, rawOutput };
+    }
+
+    // Try heal failing generated tests by sending failure output along with original prompt to model
+    async healTestFile(failingTestCode, errorOutput, { diff = '', existingTests = [], sourceFiles = [] } = {}) {
+        // Include failing test code and error output in the prompt for context for the model
+        let prompt =
+            'The following Playwright test code failed. Fix the test based on the error output and source context.\n\n' +
+            'RULES:\n' +
+            '- Fix ONLY the issues identified in the error output\n' +
+            '- Use getByRole, getByText, or getByLabel locators instead of CSS selectors\n' +
+            '- If a locator matches multiple elements, make it more specific\n' +
+            `- Use ${this.baseUrl} as the base URL for page.goto()\n` +
+            '- Output ONLY the complete fixed TypeScript test code\n' +
+            '- No markdown fences, no explanations\n\n' +
+            '### FAILING TEST CODE:\n\n' +
+            `${failingTestCode}\n\n` +
+            '### ERROR OUTPUT:\n\n' +
+            `${errorOutput}\n`;
+
+        // Include source context so the LLM can understand the actual app structure
+        if (diff) {
+            prompt += `\n### GIT DIFF:\n\n${diff}\n`;
+        }
+
+        // Add source files of code if available
+        if (sourceFiles.length > 0) {
+            prompt += '\n### SOURCE CODE FILE:\n\n';
+            for (const file of sourceFiles) {
+                prompt += `// ${file.path}\n${file.content}\n`;
+            }
+        }
+
+        // Add existing tests if available to help the model match the style
+        if (existingTests.length > 0) {
+            prompt += '\n### EXISTING TEST FILE:\n\n';
+            for (const file of existingTests) {
+                prompt += `// ${file.path}\n${file.content}\n`;
+            }
+        }
+
+        // Call the model to get the fixed test code
+        let fixedCode = await this.provider.call(prompt);
+
+        // Extract TypeScript from the response using the helper function
+        fixedCode = extractTypeScript(fixedCode);
+
+        // If no code returned, log a warning and return null to indicate healing failed
+        // and tests are still failing
+        if (!fixedCode) {
+            core.warning('Heal attempt returned empty code');
+            return null;
+        }
+
+        // Log the fixed code for debugging
+        core.info(`Heal attempt generated fixed test (${fixedCode.length} chars)`);
+
+        // Return the fixed code to be re-run as a test
+        return fixedCode;
     }
 }

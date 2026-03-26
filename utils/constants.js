@@ -5,3 +5,4 @@ export const MAX_TOOL_ROUNDS = 5;
 export const MAX_RETRIES = 3;
 export const INITIAL_RETRY_DELAY_MS = 5000;
 export const RETRYABLE_STATUS_CODES = [429, 529];
+export const MAX_HEAL_ATTEMPTS = 2;
