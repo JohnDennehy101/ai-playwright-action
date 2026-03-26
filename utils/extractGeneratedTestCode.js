@@ -52,6 +52,6 @@ export function extractTypeScript(raw) {
         }
     }
 
-    // If no match for any, just return the raw response
-    return raw;
+    // If no match for any pattern, return empty string
+    return '';
 }
