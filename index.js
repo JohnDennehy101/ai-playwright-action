@@ -103,14 +103,11 @@ async function run() {
             return;
         }
 
-        // If the generated test file already exists, delete it so we regenerate
-        // based on the latest diff (the commit marker check above prevents loops)
+        // If the generated test file already exists, it will be overwritten
+        // when we commit the new version (createOrUpdateFile handles this)
         const testFileExists = await gh.fileExistsOnBranch(repoRelativeTestPath);
         if (testFileExists) {
-            core.info(
-                `Deleting existing generated test file ${repoRelativeTestPath} — will regenerate from latest diff.`
-            );
-            await gh.deleteFile(repoRelativeTestPath, `test: remove stale AI-generated tests for regeneration`);
+            core.info(`Generated test file ${repoRelativeTestPath} already exists — will overwrite with fresh generation.`);
         }
 
         const rawDiff = await gh.getPullRequestDiff();
