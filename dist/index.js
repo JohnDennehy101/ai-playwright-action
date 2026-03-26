@@ -19437,7 +19437,7 @@ function forEach(obj, fn, { allOwnKeys = false } = {}) {
   if (typeof obj !== "object") {
     obj = [obj];
   }
-  if (isArray(obj)) {
+  if (isArray2(obj)) {
     for (i = 0, l = obj.length; i < l; i++) {
       fn.call(null, obj[i], i, obj);
     }
@@ -19482,7 +19482,7 @@ function merge2() {
       result[targetKey] = merge2(result[targetKey], val);
     } else if (isPlainObject3(val)) {
       result[targetKey] = merge2({}, val);
-    } else if (isArray(val)) {
+    } else if (isArray2(val)) {
       result[targetKey] = val.slice();
     } else if (!skipUndefined || !isUndefined(val)) {
       result[targetKey] = val;
@@ -19496,7 +19496,7 @@ function merge2() {
 function isSpecCompliantForm(thing) {
   return !!(thing && isFunction(thing.append) && thing[toStringTag] === "FormData" && thing[iterator2]);
 }
-var toString, getPrototypeOf, iterator2, toStringTag, kindOf, kindOfTest, typeOfTest, isArray, isUndefined, isArrayBuffer, isString, isFunction, isNumber, isObject, isBoolean, isPlainObject3, isEmptyObject, isDate, isFile, isBlob, isFileList, isStream, isFormData, isURLSearchParams, isReadableStream, isRequest, isResponse, isHeaders, trim, _global, isContextDefined, extend, stripBOM, inherits, toFlatObject, endsWith, toArray, isTypedArray, forEachEntry, matchAll, isHTMLForm, toCamelCase, hasOwnProperty, isRegExp, reduceDescriptors, freezeMethods, toObjectSet, noop3, toFiniteNumber, toJSONObject, isAsyncFn, isThenable, _setImmediate, asap, isIterable, utils_default;
+var toString, getPrototypeOf, iterator2, toStringTag, kindOf, kindOfTest, typeOfTest, isArray2, isUndefined, isArrayBuffer, isString, isFunction, isNumber, isObject, isBoolean, isPlainObject3, isEmptyObject, isDate, isFile, isBlob, isFileList, isStream, isFormData, isURLSearchParams, isReadableStream, isRequest, isResponse, isHeaders, trim, _global, isContextDefined, extend, stripBOM, inherits, toFlatObject, endsWith, toArray, isTypedArray, forEachEntry, matchAll, isHTMLForm, toCamelCase, hasOwnProperty, isRegExp, reduceDescriptors, freezeMethods, toObjectSet, noop4, toFiniteNumber, toJSONObject, isAsyncFn, isThenable, _setImmediate, asap, isIterable, utils_default;
 var init_utils = __esm({
   "node_modules/axios/lib/utils.js"() {
     "use strict";
@@ -19513,7 +19513,7 @@ var init_utils = __esm({
       return (thing) => kindOf(thing) === type;
     };
     typeOfTest = (type) => (thing) => typeof thing === type;
-    ({ isArray } = Array);
+    ({ isArray: isArray2 } = Array);
     isUndefined = typeOfTest("undefined");
     isArrayBuffer = kindOfTest("ArrayBuffer");
     isString = typeOfTest("string");
@@ -19642,7 +19642,7 @@ var init_utils = __esm({
     toArray = (thing) => {
       if (!thing)
         return null;
-      if (isArray(thing))
+      if (isArray2(thing))
         return thing;
       let i = thing.length;
       if (!isNumber(i))
@@ -19721,10 +19721,10 @@ var init_utils = __esm({
           obj[value] = true;
         });
       };
-      isArray(arrayOrString) ? define(arrayOrString) : define(String(arrayOrString).split(delimiter));
+      isArray2(arrayOrString) ? define(arrayOrString) : define(String(arrayOrString).split(delimiter));
       return obj;
     };
-    noop3 = () => {
+    noop4 = () => {
     };
     toFiniteNumber = (value, defaultValue) => {
       return value != null && Number.isFinite(value = +value) ? value : defaultValue;
@@ -19741,7 +19741,7 @@ var init_utils = __esm({
           }
           if (!("toJSON" in source)) {
             stack[i] = source;
-            const target = isArray(source) ? [] : {};
+            const target = isArray2(source) ? [] : {};
             forEach(source, (value, key) => {
               const reducedValue = visit(value, i + 1);
               !isUndefined(reducedValue) && (target[key] = reducedValue);
@@ -19779,7 +19779,7 @@ var init_utils = __esm({
     asap = typeof queueMicrotask !== "undefined" ? queueMicrotask.bind(_global) : typeof process !== "undefined" && process.nextTick || _setImmediate;
     isIterable = (thing) => thing != null && isFunction(thing[iterator2]);
     utils_default = {
-      isArray,
+      isArray: isArray2,
       isArrayBuffer,
       isBuffer,
       isFormData,
@@ -19825,7 +19825,7 @@ var init_utils = __esm({
       freezeMethods,
       toObjectSet,
       toCamelCase,
-      noop: noop3,
+      noop: noop4,
       toFiniteNumber,
       findKey,
       global: _global,
@@ -31143,7 +31143,7 @@ var init_settle = __esm({
 });
 
 // node_modules/axios/lib/helpers/isAbsoluteURL.js
-function isAbsoluteURL(url3) {
+function isAbsoluteURL2(url3) {
   if (typeof url3 !== "string") {
     return false;
   }
@@ -31167,7 +31167,7 @@ var init_combineURLs = __esm({
 
 // node_modules/axios/lib/core/buildFullPath.js
 function buildFullPath(baseURL, requestedURL, allowAbsoluteUrls) {
-  let isRelativeUrl = !isAbsoluteURL(requestedURL);
+  let isRelativeUrl = !isAbsoluteURL2(requestedURL);
   if (baseURL && (isRelativeUrl || allowAbsoluteUrls == false)) {
     return combineURLs(baseURL, requestedURL);
   }
@@ -32416,10 +32416,10 @@ var require_follow_redirects = __commonJS({
 });
 
 // node_modules/axios/lib/env/data.js
-var VERSION7;
+var VERSION8;
 var init_data = __esm({
   "node_modules/axios/lib/env/data.js"() {
-    VERSION7 = "1.13.5";
+    VERSION8 = "1.13.5";
   }
 });
 
@@ -33286,7 +33286,7 @@ var init_http = __esm({
           ));
         }
         const headers = AxiosHeaders_default.from(config2.headers).normalize();
-        headers.set("User-Agent", "axios/" + VERSION7, false);
+        headers.set("User-Agent", "axios/" + VERSION8, false);
         const { onUploadProgress, onDownloadProgress } = config2;
         const maxRate = config2.maxRate;
         let maxUploadRate = void 0;
@@ -33296,7 +33296,7 @@ var init_http = __esm({
           data = formDataToStream_default(data, (formHeaders) => {
             headers.set(formHeaders);
           }, {
-            tag: `axios-${VERSION7}-boundary`,
+            tag: `axios-${VERSION8}-boundary`,
             boundary: userBoundary && userBoundary[1] || void 0
           });
         } else if (utils_default.isFormData(data) && utils_default.isFunction(data.getHeaders)) {
@@ -34491,7 +34491,7 @@ var init_validator = __esm({
     deprecatedWarnings = {};
     validators.transitional = function transitional(validator, version2, message) {
       function formatMessage(opt, desc) {
-        return "[Axios v" + VERSION7 + "] Transitional option '" + opt + "'" + desc + (message ? ". " + message : "");
+        return "[Axios v" + VERSION8 + "] Transitional option '" + opt + "'" + desc + (message ? ". " + message : "");
       }
       return (value, opt, opts) => {
         if (validator === false) {
@@ -34967,7 +34967,7 @@ var init_axios = __esm({
     axios.CanceledError = CanceledError_default;
     axios.CancelToken = CancelToken_default;
     axios.isCancel = isCancel;
-    axios.VERSION = VERSION7;
+    axios.VERSION = VERSION8;
     axios.toFormData = toFormData_default;
     axios.AxiosError = AxiosError_default;
     axios.Cancel = axios.CanceledError;
@@ -34996,7 +34996,7 @@ __export(axios_exports, {
   CancelToken: () => CancelToken2,
   CanceledError: () => CanceledError2,
   HttpStatusCode: () => HttpStatusCode2,
-  VERSION: () => VERSION8,
+  VERSION: () => VERSION9,
   all: () => all2,
   default: () => axios_default,
   formToJSON: () => formToJSON,
@@ -35007,7 +35007,7 @@ __export(axios_exports, {
   spread: () => spread2,
   toFormData: () => toFormData2
 });
-var Axios2, AxiosError2, CanceledError2, isCancel2, CancelToken2, VERSION8, all2, Cancel, isAxiosError2, spread2, toFormData2, AxiosHeaders2, HttpStatusCode2, formToJSON, getAdapter2, mergeConfig2;
+var Axios2, AxiosError2, CanceledError2, isCancel2, CancelToken2, VERSION9, all2, Cancel, isAxiosError2, spread2, toFormData2, AxiosHeaders2, HttpStatusCode2, formToJSON, getAdapter2, mergeConfig2;
 var init_axios2 = __esm({
   "node_modules/axios/index.js"() {
     init_axios();
@@ -35017,7 +35017,7 @@ var init_axios2 = __esm({
       CanceledError: CanceledError2,
       isCancel: isCancel2,
       CancelToken: CancelToken2,
-      VERSION: VERSION8,
+      VERSION: VERSION9,
       all: all2,
       Cancel,
       isAxiosError: isAxiosError2,
@@ -46628,6 +46628,9 @@ var COMMIT_MARKER = "AI-generated Playwright tests";
 var TARGET_SOURCE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
 var EXCLUDED_EXTENSIONS = [".json", ".lock", ".md", ".txt", ".png", ".jpg", ".pdf", ".yml", ".yaml"];
 var MAX_TOOL_ROUNDS = 10;
+var MAX_RETRIES = 3;
+var INITIAL_RETRY_DELAY_MS = 5e3;
+var RETRYABLE_STATUS_CODES = [429, 529];
 
 // utils/diff.js
 var extractFilePath = (line) => {
@@ -46859,9 +46862,6 @@ var ContextService = class {
   }
 };
 
-// services/LlmService.js
-init_axios2();
-
 // node_modules/@anthropic-ai/sdk/internal/tslib.mjs
 function __classPrivateFieldSet(receiver, state, value, kind, f) {
   if (kind === "m")
@@ -47015,11 +47015,11 @@ var InternalServerError = class extends APIError {
 
 // node_modules/@anthropic-ai/sdk/internal/utils/values.mjs
 var startsWithSchemeRegexp = /^[a-z][a-z0-9+.-]*:/i;
-var isAbsoluteURL2 = (url3) => {
+var isAbsoluteURL = (url3) => {
   return startsWithSchemeRegexp.test(url3);
 };
-var isArray2 = (val) => (isArray2 = Array.isArray, isArray2(val));
-var isReadonlyArray = isArray2;
+var isArray = (val) => (isArray = Array.isArray, isArray(val));
+var isReadonlyArray = isArray;
 function maybeObj(x) {
   if (typeof x !== "object") {
     return {};
@@ -47057,7 +47057,7 @@ var safeJSON = (text) => {
 var sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
 
 // node_modules/@anthropic-ai/sdk/version.mjs
-var VERSION9 = "0.80.0";
+var VERSION7 = "0.80.0";
 
 // node_modules/@anthropic-ai/sdk/internal/detect-platform.mjs
 var isRunningInBrowser = () => {
@@ -47085,7 +47085,7 @@ var getPlatformProperties = () => {
   if (detectedPlatform === "deno") {
     return {
       "X-Stainless-Lang": "js",
-      "X-Stainless-Package-Version": VERSION9,
+      "X-Stainless-Package-Version": VERSION7,
       "X-Stainless-OS": normalizePlatform(Deno.build.os),
       "X-Stainless-Arch": normalizeArch(Deno.build.arch),
       "X-Stainless-Runtime": "deno",
@@ -47095,7 +47095,7 @@ var getPlatformProperties = () => {
   if (typeof EdgeRuntime !== "undefined") {
     return {
       "X-Stainless-Lang": "js",
-      "X-Stainless-Package-Version": VERSION9,
+      "X-Stainless-Package-Version": VERSION7,
       "X-Stainless-OS": "Unknown",
       "X-Stainless-Arch": `other:${EdgeRuntime}`,
       "X-Stainless-Runtime": "edge",
@@ -47105,7 +47105,7 @@ var getPlatformProperties = () => {
   if (detectedPlatform === "node") {
     return {
       "X-Stainless-Lang": "js",
-      "X-Stainless-Package-Version": VERSION9,
+      "X-Stainless-Package-Version": VERSION7,
       "X-Stainless-OS": normalizePlatform(globalThis.process.platform ?? "unknown"),
       "X-Stainless-Arch": normalizeArch(globalThis.process.arch ?? "unknown"),
       "X-Stainless-Runtime": "node",
@@ -47116,7 +47116,7 @@ var getPlatformProperties = () => {
   if (browserInfo) {
     return {
       "X-Stainless-Lang": "js",
-      "X-Stainless-Package-Version": VERSION9,
+      "X-Stainless-Package-Version": VERSION7,
       "X-Stainless-OS": "Unknown",
       "X-Stainless-Arch": "unknown",
       "X-Stainless-Runtime": `browser:${browserInfo.browser}`,
@@ -47125,7 +47125,7 @@ var getPlatformProperties = () => {
   }
   return {
     "X-Stainless-Lang": "js",
-    "X-Stainless-Package-Version": VERSION9,
+    "X-Stainless-Package-Version": VERSION7,
     "X-Stainless-OS": "Unknown",
     "X-Stainless-Arch": "unknown",
     "X-Stainless-Runtime": "unknown",
@@ -47408,20 +47408,20 @@ var parseLogLevel = (maybeLevel, sourceName, client) => {
   loggerFor(client).warn(`${sourceName} was set to ${JSON.stringify(maybeLevel)}, expected one of ${JSON.stringify(Object.keys(levelNumbers))}`);
   return void 0;
 };
-function noop4() {
+function noop3() {
 }
 function makeLogFn(fnLevel, logger, logLevel) {
   if (!logger || levelNumbers[fnLevel] > levelNumbers[logLevel]) {
-    return noop4;
+    return noop3;
   } else {
     return logger[fnLevel].bind(logger);
   }
 }
 var noopLogger = {
-  error: noop4,
-  warn: noop4,
-  info: noop4,
-  debug: noop4
+  error: noop3,
+  warn: noop3,
+  info: noop3,
+  debug: noop3
 };
 var cachedLoggers = /* @__PURE__ */ new WeakMap();
 function loggerFor(client) {
@@ -51350,7 +51350,7 @@ var BaseAnthropic = class {
     return stringifyQuery(query);
   }
   getUserAgent() {
-    return `${this.constructor.name}/JS ${VERSION9}`;
+    return `${this.constructor.name}/JS ${VERSION7}`;
   }
   defaultIdempotencyKey() {
     return `stainless-node-retry-${uuid4()}`;
@@ -51360,7 +51360,7 @@ var BaseAnthropic = class {
   }
   buildURL(path3, query, defaultBaseURL) {
     const baseURL = !__classPrivateFieldGet(this, _BaseAnthropic_instances, "m", _BaseAnthropic_baseURLOverridden).call(this) && defaultBaseURL || this.baseURL;
-    const url3 = isAbsoluteURL2(path3) ? new URL(path3) : new URL(baseURL + (baseURL.endsWith("/") && path3.startsWith("/") ? path3.slice(1) : path3));
+    const url3 = isAbsoluteURL(path3) ? new URL(path3) : new URL(baseURL + (baseURL.endsWith("/") && path3.startsWith("/") ? path3.slice(1) : path3));
     const defaultQuery = this.defaultQuery();
     const pathQuery = Object.fromEntries(url3.searchParams);
     if (!isEmptyObj(defaultQuery) || !isEmptyObj(pathQuery)) {
@@ -51711,6 +51711,43 @@ Anthropic.Messages = Messages2;
 Anthropic.Models = Models2;
 Anthropic.Beta = Beta;
 
+// services/RequestService.js
+init_axios2();
+var RequestService = class _RequestService {
+  // Function to wrap API calls with retry logic
+  static async withRetry(fn) {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        const status = err?.status || err?.response?.status;
+        const isRetryable = RETRYABLE_STATUS_CODES.includes(status);
+        if (!isRetryable || attempt === MAX_RETRIES) {
+          throw err;
+        }
+        const delayMilliSeconds = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt);
+        warning(
+          `API returned ${status}, retrying in ${delayMilliSeconds / 1e3}s (attempt ${attempt + 1}/${MAX_RETRIES})`
+        );
+        await new Promise((r) => setTimeout(r, delayMilliSeconds));
+      }
+    }
+  }
+  // Makes an authenticated POST request with retry logic in place
+  static async post(url3, body, { apiKey, timeout = 12e4 } = {}) {
+    const headers = {
+      "Content-Type": "application/json"
+    };
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
+    return _RequestService.withRetry(async () => {
+      const response = await axios_default.post(url3, body, { headers, timeout });
+      return response;
+    });
+  }
+};
+
 // services/LlmService.js
 var LlmService = class {
   // The LlmService interacts with the GPU running via API to generate Playwright test code based on the provided diff and context.
@@ -51809,26 +51846,17 @@ ${file2.content}
   // Call the self-hosted GPU server (Digital Ocean droplet)
   async #callSelfHosted(prompt) {
     info(`Calling self-hosted LLM at http://${this.host}:8000/generate-test with model: ${this.modelId}`);
-    const response = await axios_default.post(
+    const response = await RequestService.post(
       `http://${this.host}:8000/generate-test`,
-      {
-        model_id: this.modelId,
-        prompt
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json"
-        },
-        timeout: 12e4
-      }
+      { model_id: this.modelId, prompt },
+      { apiKey: this.apiKey, timeout: 12e4 }
     );
     return response.data.generated_test || response.data.output || response.data.text || "";
   }
   // Call the HuggingFace Inference API
   async #callHuggingFace(prompt) {
     info(`Calling HuggingFace Inference API with model: ${this.modelId}`);
-    const response = await axios_default.post(
+    const response = await RequestService.post(
       "https://router.huggingface.co/v1/chat/completions",
       {
         model: `${this.modelId}:nscale`,
@@ -51836,13 +51864,7 @@ ${file2.content}
         max_tokens: 1024,
         temperature: 0
       },
-      {
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json"
-        },
-        timeout: 18e4
-      }
+      { apiKey: this.apiKey, timeout: 18e4 }
     );
     return response.data.choices?.[0]?.message?.content || "";
   }
@@ -51859,7 +51881,7 @@ ${file2.content}
       requestParameters.tools = mcpService.getToolsForClaude();
       info(`Including ${requestParameters.tools.length} MCP tool(s) in Claude request`);
     }
-    let response = await client.messages.create(requestParameters);
+    let response = await RequestService.withRetry(() => client.messages.create(requestParameters));
     const messages = [...requestParameters.messages];
     let rounds = 0;
     while (response.stop_reason === "tool_use" && rounds < MAX_TOOL_ROUNDS) {
@@ -51878,10 +51900,12 @@ ${file2.content}
         }
       }
       messages.push({ role: "user", content: toolResults });
-      response = await client.messages.create({
-        ...requestParameters,
-        messages
-      });
+      response = await RequestService.withRetry(
+        () => client.messages.create({
+          ...requestParameters,
+          messages
+        })
+      );
     }
     const textBlocks = response.content.filter((b) => b.type === "text");
     return textBlocks.map((b) => b.text).join("\n");

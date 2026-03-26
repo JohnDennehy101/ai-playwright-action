@@ -1,7 +1,7 @@
-import axios from 'axios';
 import Anthropic from '@anthropic-ai/sdk';
 import * as core from '@actions/core';
 import { MAX_TOOL_ROUNDS } from '../utils/constants.js';
+import { RequestService } from './RequestService.js';
 
 export class LlmService {
     // The LlmService interacts with the GPU running via API to generate Playwright test code based on the provided diff and context.
@@ -111,21 +111,15 @@ export class LlmService {
     async #callSelfHosted(prompt) {
         core.info(`Calling self-hosted LLM at http://${this.host}:8000/generate-test with model: ${this.modelId}`);
 
-        const response = await axios.post(
+        // Use the RequestService with retry logic to make the request
+        const response = await RequestService.post(
             `http://${this.host}:8000/generate-test`,
-            {
-                model_id: this.modelId,
-                prompt,
-            },
-            {
-                headers: {
-                    Authorization: `Bearer ${this.apiKey}`,
-                    'Content-Type': 'application/json',
-                },
-                timeout: 120000,
-            }
+            { model_id: this.modelId, prompt },
+            { apiKey: this.apiKey, timeout: 120000 }
         );
 
+        // Return the generated test code from the response
+        // Checks for different possible field in response for flexibility
         return response.data.generated_test || response.data.output || response.data.text || '';
     }
 
@@ -134,8 +128,8 @@ export class LlmService {
         // Log for debugging
         core.info(`Calling HuggingFace Inference API with model: ${this.modelId}`);
 
-        // Simple POST request to the API endpoint
-        const response = await axios.post(
+        // POST request to the HuggingFace router API endpoint
+        const response = await RequestService.post(
             'https://router.huggingface.co/v1/chat/completions',
             {
                 model: `${this.modelId}:nscale`,
@@ -143,13 +137,7 @@ export class LlmService {
                 max_tokens: 1024,
                 temperature: 0,
             },
-            {
-                headers: {
-                    Authorization: `Bearer ${this.apiKey}`,
-                    'Content-Type': 'application/json',
-                },
-                timeout: 180000,
-            }
+            { apiKey: this.apiKey, timeout: 180000 }
         );
 
         // Return the generated test code from the response
@@ -181,8 +169,9 @@ export class LlmService {
             core.info(`Including ${requestParameters.tools.length} MCP tool(s) in Claude request`);
         }
 
-        // Initial API call to Claude
-        let response = await client.messages.create(requestParameters);
+        // Initial API call to Claude - retries with exponential backoff
+        // As service can be down
+        let response = await RequestService.withRetry(() => client.messages.create(requestParameters));
 
         // Make tool calls until the model returns a final text response
         const messages = [...requestParameters.messages];
@@ -213,11 +202,13 @@ export class LlmService {
             // Send tool results back to Claude for the next round
             messages.push({ role: 'user', content: toolResults });
 
-            // Call API again with updated conversation
-            response = await client.messages.create({
-                ...requestParameters,
-                messages,
-            });
+            // Call API again with updated conversation - retries with exponential backoff as service can be down
+            response = await RequestService.withRetry(() =>
+                client.messages.create({
+                    ...requestParameters,
+                    messages,
+                })
+            );
         }
 
         // Extract text from the final response
