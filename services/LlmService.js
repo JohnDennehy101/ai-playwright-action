@@ -155,14 +155,19 @@ export class LlmService {
     async healTestFile(failingTestCode, errorOutput, { diff = '', existingTests = [], sourceFiles = [] } = {}) {
         // Include failing test code and error output in the prompt for context for the model
         let prompt =
-            'The following Playwright test code failed. Fix the test based on the error output and source context.\n\n' +
-            'RULES:\n' +
-            '- Fix ONLY the issues identified in the error output\n' +
-            '- Use getByRole, getByText, or getByLabel locators instead of CSS selectors\n' +
+            'Analyse the following failing Playwright test step-by-step:\n' +
+            '1. Identify the exact error from the error output.\n' +
+            '2. Determine which locator or assertion caused the failure.\n' +
+            '3. Check the source code to understand the correct DOM structure.\n' +
+            '4. Write the complete fixed Playwright test code.\n\n' +
+            'IMPORTANT REQUIREMENTS for the fixed code:\n' +
+            '- Use modern Playwright locator API: page.getByRole(), page.getByText(), page.getByLabel()\n' +
+            '- Do NOT use page.fill(selector, value) or page.click(selector) — use locator methods instead\n' +
             '- If a locator matches multiple elements, make it more specific\n' +
             `- Use ${this.baseUrl} as the base URL for page.goto()\n` +
+            '- Match the locator patterns used in the existing test files provided below\n' +
             '- Output ONLY the complete fixed TypeScript test code\n' +
-            '- No markdown fences, no explanations\n\n' +
+            '- No markdown fences, no explanations\n' +
             '### FAILING TEST CODE:\n\n' +
             `${failingTestCode}\n\n` +
             '### ERROR OUTPUT:\n\n' +
@@ -190,10 +195,15 @@ export class LlmService {
         }
 
         // Call the model to get the fixed test code
-        let fixedCode = await this.provider.call(prompt);
+        const rawHealOutput = await this.provider.call(prompt);
+
+        // Log the full raw heal prompt model response for debugging
+        core.info('=== RAW HEAL PROMPT RESPONSE OUTPUT ===');
+        core.info(rawHealOutput);
+        core.info('=== END RAW HEAL PROMPT RESPONSE OUTPUT ===');
 
         // Extract TypeScript from the response using the helper function
-        fixedCode = extractTypeScript(fixedCode);
+        let fixedCode = extractTypeScript(rawHealOutput);
 
         // If no code returned, log a warning and return null to indicate healing failed
         // and tests are still failing
