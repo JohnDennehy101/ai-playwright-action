@@ -139,9 +139,10 @@ export class McpService {
             server: entry.serverName,
             args,
             outputLength: output.length,
-            durationMs,
+            durationMilliseconds,
         });
 
+        // Finally return output from tool call
         return output;
     }
 
@@ -164,7 +165,7 @@ export class McpService {
         // Loop over tool calls that have been stored and output in a markdown table format
         for (let i = 0; i < this.toolCallLog.length; i++) {
             const call = this.toolCallLog[i];
-            summary += `| ${i + 1} | \`${call.tool}\` | ${call.server} | ${call.durationMs}ms | ${call.outputLength} chars |\n`;
+            summary += `| ${i + 1} | \`${call.tool}\` | ${call.server} | ${call.durationMilliseconds}ms | ${call.outputLength} chars |\n`;
         }
 
         // Return the formatted summary

@@ -51888,8 +51888,8 @@ ${file2.content}
   }
   // Public function to actually call the LLM API and generate test code
   // Note that mcpService is optional — pass it to enable MCP tool use with Claude
-  // MCP tools are only supported with Claude — HuggingFace and self-hosted models
-  // do not reliably support tool use, so MCP is skipped for those providers
+  // MCP tools are only supported with Claude — HuggingFace
+  // does not reliably support tool use, so MCP is skipped if not Claude
   async generateTestFile(diff, existingTests = [], sourceFiles = [], mcpService = null) {
     const useMcp = this.host === "claude" && mcpService?.hasTools();
     const prompt = useMcp ? this.#buildMcpPrompt(diff, existingTests, sourceFiles) : this.#buildPrompt(diff, existingTests, sourceFiles);
@@ -66208,7 +66208,7 @@ var McpService = class {
       server: entry.serverName,
       args,
       outputLength: output.length,
-      durationMs
+      durationMilliseconds
     });
     return output;
   }
@@ -66229,7 +66229,7 @@ var McpService = class {
     summary2 += "|---|------|--------|----------|-------------|\n";
     for (let i = 0; i < this.toolCallLog.length; i++) {
       const call = this.toolCallLog[i];
-      summary2 += `| ${i + 1} | \`${call.tool}\` | ${call.server} | ${call.durationMs}ms | ${call.outputLength} chars |
+      summary2 += `| ${i + 1} | \`${call.tool}\` | ${call.server} | ${call.durationMilliseconds}ms | ${call.outputLength} chars |
 `;
     }
     return summary2;
