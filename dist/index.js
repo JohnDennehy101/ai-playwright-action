@@ -164,16 +164,20 @@ ${i.content}
 
 `;for(let i of r)o+=`// ${i.path}
 ${i.content}
-`}return o}async generateTestFile(e,r=[],n=[],o=null){let s=this.host==="claude"&&o?.hasTools()?this.#e(e,r,n):this.#t(e,r,n);o?.hasTools()&&this.host!=="claude"&&Kt("MCP tools are configured but only supported with Claude (llm-host: claude). Skipping tools.");let a=await this.provider.call(s,o),c=a;if(a=cb(a),!a)throw new Error("LLM returned empty test code. The model may have used all tokens on tool calls without generating code.");return!/\btest\s*\(/.test(a)&&!/\btest\.describe\s*\(/.test(a)&&Kt("Generated code does not contain test() or test.describe() \u2014 may not be valid Playwright test code"),J(`Generated test file (${a.length} chars from ${c.length} chars raw)`),{testCode:a,rawOutput:c}}async healTestFile(e,r,{diff:n="",existingTests:o=[],sourceFiles:i=[]}={}){let s=`The following Playwright test code failed. Fix the test based on the error output and source context.
+`}return o}async generateTestFile(e,r=[],n=[],o=null){let s=this.host==="claude"&&o?.hasTools()?this.#e(e,r,n):this.#t(e,r,n);o?.hasTools()&&this.host!=="claude"&&Kt("MCP tools are configured but only supported with Claude (llm-host: claude). Skipping tools.");let a=await this.provider.call(s,o),c=a;if(a=cb(a),!a)throw new Error("LLM returned empty test code. The model may have used all tokens on tool calls without generating code.");return!/\btest\s*\(/.test(a)&&!/\btest\.describe\s*\(/.test(a)&&Kt("Generated code does not contain test() or test.describe() \u2014 may not be valid Playwright test code"),J(`Generated test file (${a.length} chars from ${c.length} chars raw)`),{testCode:a,rawOutput:c}}async healTestFile(e,r,{diff:n="",existingTests:o=[],sourceFiles:i=[]}={}){let s=`Analyse the following failing Playwright test step-by-step:
+1. Identify the exact error from the error output.
+2. Determine which locator or assertion caused the failure.
+3. Check the source code to understand the correct DOM structure.
+4. Write the complete fixed Playwright test code.
 
-RULES:
-- Fix ONLY the issues identified in the error output
-- Use getByRole, getByText, or getByLabel locators instead of CSS selectors
+IMPORTANT REQUIREMENTS for the fixed code:
+- Use modern Playwright locator API: page.getByRole(), page.getByText(), page.getByLabel()
+- Do NOT use page.fill(selector, value) or page.click(selector) \u2014 use locator methods instead
 - If a locator matches multiple elements, make it more specific
 - Use ${this.baseUrl} as the base URL for page.goto()
+- Match the locator patterns used in the existing test files provided below
 - Output ONLY the complete fixed TypeScript test code
 - No markdown fences, no explanations
-
 ### FAILING TEST CODE:
 
 ${e}
