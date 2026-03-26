@@ -3,12 +3,11 @@
     "version": "1.0.0",
     "main": "index.js",
     "scripts": {
-        "build": "esbuild index.js --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.js",
-        "build:prod": "esbuild index.js --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.js --minify",
+        "build": "esbuild index.js --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.js --minify",
+        "build:dev": "esbuild index.js --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.js",
         "test": "node index.js"
     },
     "dependencies": {
-        "@actions/cache": "^6.0.0",
         "@actions/core": "^3.0.0",
         "@actions/github": "^9.0.0",
         "@anthropic-ai/sdk": "^0.80.0",

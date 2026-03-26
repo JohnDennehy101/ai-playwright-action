@@ -162,6 +162,36 @@ export class GitHubClient {
         }
     }
 
+    // Public function that deletes a file from the pull request branch
+    // Used to delete generated test file if it already exists
+    // To ensure fresh tests are generated on each commit
+    async deleteFile(filePath, message) {
+        // First ensure PR number is available
+        this.#ensurePullRequest();
+
+        // Get pull request info for the branch name
+        const pullRequest = await this.getPullRequest();
+        const branch = pullRequest.head.ref;
+
+        // Get the file's SHA
+        const { data } = await this.octokit.rest.repos.getContent({
+            owner: this.repoOwner,
+            repo: this.repoName,
+            path: filePath,
+            ref: branch,
+        });
+
+        // Delete the file via the GitHub API
+        await this.octokit.rest.repos.deleteFile({
+            owner: this.repoOwner,
+            repo: this.repoName,
+            path: filePath,
+            message,
+            sha: data.sha,
+            branch,
+        });
+    }
+
     // Public function to create or update a file on the pull request branch with the passed content and commit message
     async createOrUpdateFile(filePath, content, message) {
         // First ensure PR number is available
