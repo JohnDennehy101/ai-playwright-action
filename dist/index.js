@@ -51760,26 +51760,25 @@ var LlmService = class {
   // Private function that constructs an MCP enhanced prompt that tells the model to explore the running app first
   // Used when MCP tools (e.g. Playwright MCP) are available
   #buildMcpPrompt(diff, existingTests, sourceFiles) {
-    let prompt = `You have access to Playwright MCP tools to interact with a running web application.
+    let prompt = `You have access to a Playwright MCP server that lets you interact with a running web app.
 
-Follow these steps:
-1. Navigate to ${this.baseUrl} and take a snapshot to understand the current UI.
-2. Review the git diff below to understand what changed.
-3. Use the Playwright tools to interact with the changed functionality \u2014 click buttons, fill forms, verify elements.
-4. Based on your exploration, write comprehensive Playwright test code.
+The app is running at ${this.baseUrl}
 
-IMPORTANT REQUIREMENTS for the final code:
-- Start with: import { test, expect } from '@playwright/test';
-- Use ${this.baseUrl} as the base URL for page.goto()
-- Use getByRole, getByText, or getByLabel locators
-- Include assertions using expect()
-- Output ONLY raw TypeScript code \u2014 no markdown fences (\`\`\`), no explanations
-- Ensure the code is syntactically valid TypeScript
+TASK: Generate Playwright e2e tests for the following code change.
+Before writing any tests, use your Playwright tools to:
+1. Navigate to ${this.baseUrl}
+2. Take a snapshot to see the current UI structure
+3. Interact with the changed functionality to understand how it works
+4. Then write comprehensive Playwright test code
+
+Analyze the following data step-by-step:
+1. Identify the UI change from the diff.
+2. Map the change to the implementation in the source code.
+3. Outline the test steps.
+4. Write the final Playwright test code.
+
 `;
-    if (existingTests.length > 0) {
-      prompt += "- Match the style of the existing test files provided below.\n";
-    }
-    prompt += `
+    prompt += `Data:
 ### GIT DIFF:
 
 ${diff}
@@ -51800,6 +51799,7 @@ ${file2.content}
 `;
       }
     }
+    prompt += "\n\nIMPORTANT: Return ONLY the Playwright test code (TypeScript) in a ```typescript code block.\nUse @playwright/test imports. The tests should be runnable with 'npx playwright test'.\n";
     return prompt;
   }
   // Private function to build the prompt actually passed to the model
@@ -51819,8 +51819,7 @@ IMPORTANT REQUIREMENTS for the final code:
     if (existingTests.length > 0) {
       prompt += "- Match the style of the existing test files provided below.\n";
     }
-    prompt += `
-Data:
+    prompt += `Data:
 ### GIT DIFF:
 
 ${diff}

@@ -20,28 +20,25 @@ export class LlmService {
     // Used when MCP tools (e.g. Playwright MCP) are available
     #buildMcpPrompt(diff, existingTests, sourceFiles) {
         // Start prompt initialisation
+        // Tell the model to browse the app before writing tests
         let prompt =
-            'You have access to Playwright MCP tools to interact with a running web application.\n\n' +
-            'Follow these steps:\n' +
-            `1. Navigate to ${this.baseUrl} and take a snapshot to understand the current UI.\n` +
-            '2. Review the git diff below to understand what changed.\n' +
-            '3. Use the Playwright tools to interact with the changed functionality — click buttons, fill forms, verify elements.\n' +
-            '4. Based on your exploration, write comprehensive Playwright test code.\n\n' +
-            'IMPORTANT REQUIREMENTS for the final code:\n' +
-            "- Start with: import { test, expect } from '@playwright/test';\n" +
-            `- Use ${this.baseUrl} as the base URL for page.goto()\n` +
-            '- Use getByRole, getByText, or getByLabel locators\n' +
-            '- Include assertions using expect()\n' +
-            '- Output ONLY raw TypeScript code — no markdown fences (```), no explanations\n' +
-            '- Ensure the code is syntactically valid TypeScript\n';
+            'You have access to a Playwright MCP server that lets you interact with a running web app.\n\n' +
+            `The app is running at ${this.baseUrl}\n\n` +
+            'TASK: Generate Playwright e2e tests for the following code change.\n' +
+            'Before writing any tests, use your Playwright tools to:\n' +
+            `1. Navigate to ${this.baseUrl}\n` +
+            '2. Take a snapshot to see the current UI structure\n' +
+            '3. Interact with the changed functionality to understand how it works\n' +
+            '4. Then write comprehensive Playwright test code\n\n' +
+            // Proven chain-of-thought structure for test generation
+            'Analyze the following data step-by-step:\n' +
+            '1. Identify the UI change from the diff.\n' +
+            '2. Map the change to the implementation in the source code.\n' +
+            '3. Outline the test steps.\n' +
+            '4. Write the final Playwright test code.\n\n';
 
-        // Add tests message if they are present for more context
-        if (existingTests.length > 0) {
-            prompt += '- Match the style of the existing test files provided below.\n';
-        }
-
-        // Add the diff for futher context
-        prompt += `\n### GIT DIFF:\n\n${diff}\n`;
+        // Add the diff as the data for the model to analyse
+        prompt += `Data:\n### GIT DIFF:\n\n${diff}\n`;
 
         // And also add the source code files if present
         if (sourceFiles.length > 0) {
@@ -59,6 +56,11 @@ export class LlmService {
                 prompt += `// ${file.path}\n${file.content}\n`;
             }
         }
+
+        // Closing instruction matching the proven prompt format
+        prompt +=
+            '\n\nIMPORTANT: Return ONLY the Playwright test code (TypeScript) in a ```typescript code block.\n' +
+            "Use @playwright/test imports. The tests should be runnable with 'npx playwright test'.\n";
 
         // Return prompt
         return prompt;
@@ -85,7 +87,7 @@ export class LlmService {
         }
 
         // Add the diff within the prompt
-        prompt += `\nData:\n### GIT DIFF:\n\n${diff}\n`;
+        prompt += `Data:\n### GIT DIFF:\n\n${diff}\n`;
 
         // If source code files provided, add to prompt
         if (sourceFiles.length > 0) {
