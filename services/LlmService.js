@@ -195,10 +195,15 @@ export class LlmService {
         }
 
         // Call the model to get the fixed test code
-        let fixedCode = await this.provider.call(prompt);
+        const rawHealOutput = await this.provider.call(prompt);
+
+        // Log the full raw heal prompt model response for debugging
+        core.info('=== RAW HEAL PROMPT RESPONSE OUTPUT ===');
+        core.info(rawHealOutput);
+        core.info('=== END RAW HEAL PROMPT RESPONSE OUTPUT ===');
 
         // Extract TypeScript from the response using the helper function
-        fixedCode = extractTypeScript(fixedCode);
+        let fixedCode = extractTypeScript(rawHealOutput);
 
         // If no code returned, log a warning and return null to indicate healing failed
         // and tests are still failing
