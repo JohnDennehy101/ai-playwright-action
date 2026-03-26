@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import * as core from '@actions/core';
 import { MAX_TOOL_ROUNDS } from '../utils/constants.js';
+import { extractTypeScript } from '../utils/extractGeneratedTestCode.js';
 import { RequestService } from './RequestService.js';
 
 export class LlmService {
@@ -245,12 +246,12 @@ export class LlmService {
             testCode = await this.#callSelfHosted(prompt);
         }
 
-        // Clean output to ensure only raw Typescript code is returned
-        // Strip any text before start of tests
-        testCode = testCode
-            .replace(/^```(?:typescript|ts|javascript|js)?\n/m, '')
-            .replace(/\n```$/m, '')
-            .trim();
+        // Store the raw output for visibility before extracting code
+        const rawOutput = testCode;
+
+        // Extract the actual TypeScript test code from the raw LLM response
+        // Handles markdown blocks, commentary, and other non-code output
+        testCode = extractTypeScript(testCode);
 
         // If it is empty after cleaning, throw error
         if (!testCode) {
@@ -258,9 +259,9 @@ export class LlmService {
         }
 
         // Log for debugging
-        core.info(`Generated test file (${testCode.length} chars)`);
+        core.info(`Generated test file (${testCode.length} chars from ${rawOutput.length} chars raw)`);
 
-        // Return generated test code
-        return testCode;
+        // Return both the extracted test code and the raw LLM output
+        return { testCode, rawOutput };
     }
 }
