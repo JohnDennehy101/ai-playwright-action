@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as core from '@actions/core';
 import * as github from '@actions/github';
 import { logDiffInfo, buildNewFileReviewBody, buildResultsReviewBody } from './utils/comment.js';
@@ -74,6 +75,27 @@ async function run() {
             return;
         }
 
+        // Build unique test file name using PR number (e.g. e2e/ai-generated-pr-42.spec.ts)
+
+        // Get path for generated test file
+        const testOutputDirectory = path.dirname(inputs.testOutputPath);
+
+        // Get extension for test output file
+        const testOutputExtension = path.extname(inputs.testOutputPath);
+
+        // Get base name for test output file (without extension)
+        const testOutputBase = path.basename(inputs.testOutputPath, testOutputExtension);
+
+        // Generate unique test file name using base file name and PR number
+        const uniqueTestFileName = `${testOutputBase}-pr-${gh.prNumber}${testOutputExtension}`;
+
+        // Combine directory and unique file name to get full path for generated test file
+        const testOutputPath = path.join(testOutputDirectory, uniqueTestFileName);
+
+        // Determine file paths for relevant test and source files based on diff and configuration value
+        const repoRelativeTestPath =
+            inputs.appDirectory === '.' ? testOutputPath : path.join(inputs.appDirectory, testOutputPath);
+
         // Prevent loop: check latest commit message and skip if it was already made by this action
         const latestCommitMessage = await gh.getLatestCommitMessage();
         if (latestCommitMessage.includes(COMMIT_MARKER)) {
@@ -82,9 +104,9 @@ async function run() {
         }
 
         // Also skip if the generated test file already exists on the current branch
-        const testFileExists = await gh.fileExistsOnBranch(inputs.testOutputPath);
+        const testFileExists = await gh.fileExistsOnBranch(repoRelativeTestPath);
         if (testFileExists) {
-            core.info(`Generated test file ${inputs.testOutputPath} already exists on branch. Skipping.`);
+            core.info(`Generated test file ${repoRelativeTestPath} already exists on branch. Skipping.`);
             return;
         }
 
@@ -125,12 +147,12 @@ async function run() {
                 installCommand: inputs.installCommand,
                 devServerCommand: inputs.devServerCommand,
                 devServerUrl: inputs.devServerUrl,
-                testOutputPath: inputs.testOutputPath,
+                testOutputPath,
             });
 
             // Install dependencies and browsers needed for both MCP browsing and test execution
             testRunner.installDependencies();
-            testRunner.installPlaywrightBrowsers();
+            await testRunner.installPlaywrightBrowsers();
 
             // Start the dev server so MCP tools can browse the running app
             if (hasMcp || inputs.startDevServer) {
@@ -185,46 +207,52 @@ async function run() {
 
             // Pass in mcp tool call summary and raw output to the review body
             const reviewBody = buildResultsReviewBody({
-                filePath: inputs.testOutputPath,
+                filePath: repoRelativeTestPath,
                 passed: result.passed,
                 exitCode: result.exitCode,
                 output: result.output,
                 mcpSummary,
                 rawOutput,
+                testCode,
             });
 
-            // If the tests are passing, commit generated test file
-            // and post review with results.
             if (result.passed) {
-                // Commit the file to the PR branch
+                // Tests passed — commit the file and request review to approve/reject
+                // For easy experience for users
                 await gh.createOrUpdateFile(
-                    inputs.testOutputPath,
+                    repoRelativeTestPath,
                     testCode,
-                    `test: add AI-generated Playwright tests\n\nGenerated end-to-end tests based on PR diff.`
+                    `test: add AI-generated Playwright tests (PR #${gh.prNumber})\n\nGenerated end-to-end tests based on PR diff.`
                 );
-                core.info(`Tests passed — committed generated test file to ${inputs.testOutputPath}`);
-                await gh.createReview(reviewBody);
-            } else {
-                // As tests failed don't commit, just post the results on the PR
-                core.setFailed(`Playwright tests failed with exit code ${result.exitCode}`);
+                core.info(`Tests passed — committed generated test file to ${repoRelativeTestPath}`);
 
-                // Call the API to create review with the generated test results
+                // Note posting as REQUEST_CHANGES type so PR is blocked until the reviewer
+                // dismisses (keeps the test file) or deletes the file (removes the file)
+                await gh.createReview(reviewBody, 'REQUEST_CHANGES');
+            } else {
+                // Tests failed — don't commit, just post results as a comment
+                // For full visibility
+                core.setFailed(`Playwright tests failed with exit code ${result.exitCode}`);
                 await gh.createReview(reviewBody);
             }
         } else {
-            // No test run — commit directly and let the reviewer decide whether
-            // to include generated files or not
+            // No test run — commit the file and request review to approve/reject
             await gh.createOrUpdateFile(
-                inputs.testOutputPath,
+                repoRelativeTestPath,
                 testCode,
-                `test: add AI-generated Playwright tests\n\nGenerated end-to-end tests based on PR diff.`
+                `test: add AI-generated Playwright tests (PR #${gh.prNumber})\n\nGenerated end-to-end tests based on PR diff.`
             );
-            core.info(`Committed generated test file to ${inputs.testOutputPath}`);
+            core.info(`Committed generated test file to ${repoRelativeTestPath}`);
 
-            // Call the API to create review with generated test file info
-            // Include MCP tool call summary for full visiblity if avaiablle
+            // Get summary of MCP tool calls for full visibility of work completed by the model
             const mcpSummary = mcpService ? mcpService.getToolCallSummary() : '';
-            await gh.createReview(buildNewFileReviewBody(inputs.testOutputPath, mcpSummary, rawOutput));
+
+            // Note posting as REQUEST_CHANGES type so PR is blocked until the reviewer
+            // dismisses (keeps the test file) or deletes the file (removes the file)
+            await gh.createReview(
+                buildNewFileReviewBody(repoRelativeTestPath, mcpSummary, rawOutput),
+                'REQUEST_CHANGES'
+            );
         }
     } catch (error) {
         if (error.response) {

@@ -2,6 +2,7 @@ import { execSync, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as core from '@actions/core';
+import * as cache from '@actions/cache';
 
 export class TestRunnerService {
     // This service handles writing generated test code
@@ -62,19 +63,46 @@ export class TestRunnerService {
     }
 
     // Public function to install Playwright browsers
-    installPlaywrightBrowsers() {
-        // Log for debugging
-        core.info('Installing Playwright Chromium browser');
+    // Uses @actions/cache to re-use on subsequent runs for quicker
+    // inference and testing
+    async installPlaywrightBrowsers() {
+        // Cache directory and key defined for Playwright browsers
+        const cacheDirectory = path.join(process.env.HOME || '', '.cache', 'ms-playwright');
+        const cacheKey = `playwright-chromium-${process.platform}`;
 
-        // Execute the Playwright install command in a subprocess
+        // Try to access cache first to avoid unnecessary installs
+        try {
+            const restoredKey = await cache.restoreCache([cacheDirectory], cacheKey);
+            if (restoredKey) {
+                // If found in cache, log for debugging and return to skip install
+                core.info(`Playwright browsers restored from cache (key: ${restoredKey})`);
+                return;
+            }
+        } catch (err) {
+            // Cache restore can fail in non-GitHub environments — continue with install
+            core.info(`Cache restore skipped: ${err.message}`);
+        }
+
+        // Not in cache — install Chromium
+        core.info('Installing Playwright Chromium browser');
         execSync('npx playwright install chromium', {
             cwd: this.appDirectory,
             stdio: 'inherit',
             timeout: 300000,
         });
 
-        // Log for debugging
         core.info('Playwright browsers installed');
+
+        // Save to cache for future runs - to save time and avoid
+        // installing on every run.
+        try {
+            await cache.saveCache([cacheDir], cacheKey);
+            core.info('Playwright browsers saved to cache');
+        } catch (err) {
+            // Cache save can fail if key already exists — not a blocker,
+            // logging for debugging
+            core.info(`Cache save skipped: ${err.message}`);
+        }
     }
 
     // Public function to start the dev server in a subprocess and wait for it to be ready before returning
