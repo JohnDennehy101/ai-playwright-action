@@ -16,7 +16,10 @@ const buildFileLink = (repoUrl, prNumber, filePath) => {
 // Helper function to construct body of PR review
 // This one is used when tests are not run
 export const buildNewFileReviewBody = (filePath, mcpSummary = '', rawOutput = '', repoUrl = '', prNumber = '') => {
-    const truncatedRaw = rawOutput.length > 30000 ? rawOutput.substring(0, 30000) + '\n\n... (truncated)' : rawOutput;
+    // Escape backticks in raw output to prevent breaking the rendered code block
+    const escapedRaw = rawOutput.replace(/```/g, '\\`\\`\\`');
+    const truncatedRaw =
+        escapedRaw.length > 30000 ? escapedRaw.substring(0, 30000) + '\n\n... (truncated)' : escapedRaw;
     const filesLink = buildFileLink(repoUrl, prNumber, filePath);
 
     // Include heading with status, exit code, file name with link,
@@ -70,7 +73,11 @@ export const buildResultsReviewBody = ({
 
     // Truncate outputs if too long
     const truncatedOutput = output.length > 30000 ? output.substring(0, 30000) + '\n\n... (truncated)' : output;
-    const truncatedRaw = rawOutput.length > 30000 ? rawOutput.substring(0, 30000) + '\n\n... (truncated)' : rawOutput;
+
+    // Escape backticks in raw output to prevent breaking the rendered code block
+    const escapedRaw = rawOutput.replace(/```/g, '\\`\\`\\`');
+    const truncatedRaw =
+        escapedRaw.length > 30000 ? escapedRaw.substring(0, 30000) + '\n\n... (truncated)' : escapedRaw;
 
     // Build link to file in PR diff for quicker review
     const filesLink = buildFileLink(repoUrl, prNumber, filePath);
