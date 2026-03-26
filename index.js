@@ -7,8 +7,9 @@ import { ContextService } from './services/ContextService.js';
 import { LlmService } from './services/LlmService.js';
 import { McpService } from './services/McpService.js';
 import { TestRunnerService } from './services/TestRunnerService.js';
+import { ProviderFactory } from './providers/ProviderFactory.js';
 import { filterDiff } from './utils/diff.js';
-import { COMMIT_MARKER } from './utils/constants.js';
+import { COMMIT_MARKER, MAX_HEAL_ATTEMPTS } from './utils/constants.js';
 
 const parseCommaSeparated = (value, defaults) => {
     if (!value) return defaults;
@@ -107,7 +108,9 @@ async function run() {
         // when we commit the new version (createOrUpdateFile handles this)
         const testFileExists = await gh.fileExistsOnBranch(repoRelativeTestPath);
         if (testFileExists) {
-            core.info(`Generated test file ${repoRelativeTestPath} already exists — will overwrite with fresh generation.`);
+            core.info(
+                `Generated test file ${repoRelativeTestPath} already exists — will overwrite with fresh generation.`
+            );
         }
 
         const rawDiff = await gh.getPullRequestDiff();
@@ -173,11 +176,14 @@ async function run() {
             }
         }
 
-        // Initialise LLM service
-        const llm = new LlmService(inputs.host, inputs.apiKey, inputs.modelId, inputs.devServerUrl);
+        // Initialise provider (which model and API to call)
+        const provider = ProviderFactory.create(inputs.host, inputs.apiKey, inputs.modelId);
+
+        // Initialise LLM service with the provider and configuration
+        const llm = new LlmService(provider, { host: inputs.host, baseUrl: inputs.devServerUrl });
 
         // Call LLM to generate test code (passes mcpService for tool use if available)
-        const { testCode, rawOutput } = await llm.generateTestFile(cleanDiff, tests, sources, mcpService);
+        let { testCode, rawOutput } = await llm.generateTestFile(cleanDiff, tests, sources, mcpService);
 
         // Log raw LLM output and extracted code for debugging
         core.info('=== RAW LLM OUTPUT ===');
@@ -188,21 +194,54 @@ async function run() {
         core.info('=== END EXTRACTED TEST CODE ===');
 
         if (inputs.runTests) {
-            // Write generated test file to disk
+            // Write generated test file to disk and run
             testRunner.writeTestFile(testCode);
-
-            // Run the tests and extract the results
-            const result = testRunner.runTests();
+            let result = testRunner.runTests();
 
             // Log test output for debugging
             core.info('=== TEST OUTPUT ===');
             core.info(result.output);
             core.info('=== END TEST OUTPUT ===');
 
+            // If tests failed, try healing by sending test code and failure to model
+            let healAttempt = 0;
+
+            // Loop to try and heal the failing test file
+            while (!result.passed && healAttempt < MAX_HEAL_ATTEMPTS) {
+                // Increment the heal attempt
+                healAttempt++;
+
+                // Log the heal attempt number for debugging
+                core.info(`Test heal attempt ${healAttempt}/${MAX_HEAL_ATTEMPTS}...`);
+
+                // Call the LLM service to get fixed code based on the test failure output
+                const fixedCode = await llm.healTestFile(testCode, result.output, {
+                    diff: cleanDiff,
+                    existingTests: tests,
+                    sourceFiles: sources,
+                });
+
+                // If no code returned, break the loop to avoid more attempts
+                if (!fixedCode) {
+                    core.warning(`Heal attempt ${healAttempt} returned no code, stopping`);
+                    break;
+                }
+
+                // Write the fixed code and re-run tests
+                testCode = fixedCode;
+                testRunner.writeTestFile(testCode);
+                result = testRunner.runTests();
+
+                // Log for debugging
+                core.info(`=== HEAL ATTEMPT ${healAttempt} TEST OUTPUT ===`);
+                core.info(result.output);
+                core.info(`=== END HEAL ATTEMPT ${healAttempt} TEST OUTPUT ===`);
+            }
+
             // For full visibility, include MCP tool calls
             const mcpSummary = mcpService ? mcpService.getToolCallSummary() : '';
 
-            // Pass in mcp tool call summary and raw output to the review body
+            // Build the review body with final results
             const reviewBody = buildResultsReviewBody({
                 filePath: repoRelativeTestPath,
                 passed: result.passed,
@@ -216,21 +255,20 @@ async function run() {
             });
 
             if (result.passed) {
-                // Tests passed — commit the file and request review to approve/reject
-                // For easy experience for users
+                // Tests passed (possibly after healing) — commit and post review
+                const healNote = healAttempt > 0 ? ` (healed after ${healAttempt} attempt(s))` : '';
                 await gh.createOrUpdateFile(
                     repoRelativeTestPath,
                     testCode,
-                    `test: add AI-generated Playwright tests (PR #${gh.prNumber})\n\nGenerated end-to-end tests based on PR diff.`
+                    `test: add AI-generated Playwright tests (PR #${gh.prNumber})${healNote}\n\nGenerated end-to-end tests based on PR diff.`
                 );
-                core.info(`Tests passed — committed generated test file to ${repoRelativeTestPath}`);
-
-                // Post as review
+                core.info(`Tests passed${healNote} — committed generated test file to ${repoRelativeTestPath}`);
                 await gh.createReview(reviewBody);
             } else {
-                // Tests failed — don't commit, just post results as a comment
-                // For full visibility
-                core.setFailed(`Playwright tests failed with exit code ${result.exitCode}`);
+                // Tests still failed after heal attempts — don't commit, post results
+                core.setFailed(
+                    `Playwright tests failed with exit code ${result.exitCode}${healAttempt > 0 ? ` (after ${healAttempt} heal attempt(s))` : ''}`
+                );
                 await gh.createReview(reviewBody);
             }
         } else {
