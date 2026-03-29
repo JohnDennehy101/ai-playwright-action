@@ -11,6 +11,22 @@ A custom GitHub action which uses AI models to generate Playwright E2E tests fro
 - If generated tests run successfully, commits them to the PR as a file and posts a comment on the PR with a link to the newly added file
 - Also added dry-run mode for validation of diff extraction (to limit costs for AI inferencing)
 
+## Structure
+
+Here are some key folders for guidance around the project
+
+- **providers/** - LLM provider implementations (Claude, Hugging Face Inference API, self-hosted). Each provider handles the model interactions. The `ProviderFactory` selects the provider based on the value provided for `llm-host`.
+- **services/** -
+    - The LLMService handles prompt building, test generation, self healing functionality
+    - The TestRunnerService handles Playwright test execution of generated tests, starting dev server before tests etc.
+    - The ContextService handles obtaining relevant test and source files from the repo in which the action is triggered in
+    - The MCPService handles MCP server connecvtions and tool calls
+    - The GitHubClientService handles interactions with the GitHub API
+    - The RequestService is used for external requests with retry logic in place there for reliability
+- **utils/** - Helper utilities for parsing diffs, obtaining test paths, extracting test code from the generated responses, generating comment content for pull request after completion.
+- **data/** - A sample of the react app and test file already there for it
+- **dist/** - Contains the bundled output after the build with ESBuild. The GitHub action loads in the code from the bundle in this directory
+
 ## Using the action
 
 Add the action within your pipeline as a job, set the following permissions in the workflow.
